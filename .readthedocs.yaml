@@ -1,0 +1,17 @@
+# .readthedocs.yaml
+version: 2  # RTD 配置版本，固定为2
+
+# 构建环境配置
+build:
+  os: ubuntu-22.04       # 构建系统版本（推荐LTS）
+  tools:
+    python: "3.10"       # Python 版本（适配 MkDocs/Sphinx）
+
+# 文档框架配置（MkDocs 示例）
+mkdocs:
+  configuration: mkdocs.yml  # 指定 MkDocs 配置文件路径
+
+# 依赖安装（如需扩展 MkDocs 插件，在这里加）
+python:
+  install:
+    - requirements: requirements.txt  # 可选，放 MkDocs 插件依赖
