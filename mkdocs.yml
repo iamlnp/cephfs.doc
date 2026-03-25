@@ -1,1 +1,12 @@
 site_name: Cephfs文档
+plugins:
+  - search
+
+markdown_extensions:
+  - toc:
+      baselevel: 2  # 强制不提取 # 作为页面标题
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
