@@ -1,17 +1,22 @@
 site_name: Cephfs文档
-# 👇 换成这个主题，Mermaid 原生支持，不用加任何 JS
 theme:
-  name: material
+  name: material       # 必须用这个主题，所有功能原生支持
   language: zh
-  font: false
 
 plugins:
   - search
 
-# 👇 核心：自动导航用文件名，不提取一级标题 + Mermaid 支持
+# 👇 核心：列表 + 脚注 + Mermaid + 不提取标题
 markdown_extensions:
   - toc:
-      baselevel: 9        # 强制不提取 # 作为导航名，导航用文件名
+      baselevel: 2        # 强制导航用文件名，不提取一级标题
+  - tables                # 表格支持
+  - nl2br                  # 换行自动转 <br>
+  - attr_list              # 属性列表
+  - def_list               # 定义列表（术语解释）
+  - footnotes              # ✅ 脚注支持
+  - admonition             # 提示框
+  - pymdownx.details
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
