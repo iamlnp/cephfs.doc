@@ -1,5 +1,3 @@
 site_name: Cephfs文档
-nav:
-  - Home: cephfs总览.md
 plugins:
   - search
