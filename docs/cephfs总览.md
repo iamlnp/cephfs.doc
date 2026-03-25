@@ -7,19 +7,19 @@ imageNameKey: cephfs白皮书
 tags:
   - ceph
   - cephfs
-  - ceph20
 ---
 
 # 1 posix支持
+## 1.1 Client::mount()
 
-## Client::mount()
+## 1.2 mkdir
 
-
+主体处理函数：`Client::_mkdir()`
 
 # 2 元数据服务器
 
-
 ## 2.1 守护进程状态
+
 默认情况下，Ceph 文件系统仅使用一个活跃的 MDS 守护进程。但是，具有许多客户端的系统得益于多个活跃的 MDS 守护进程。  
 
 当活跃的 MDS 变得不响应时，Ceph monitor 守护进程会等待与 `mds_beacon_grace` 选项中指定的值相等的秒数。如果在指定的时间段过后活跃的 MDS 仍然不响应，Ceph 监控器会将 MDS 守护进程标记为 `laggy`。其中一个备用守护进程会变为活动状态，具体取决于配置。  
@@ -75,13 +75,133 @@ ceph fs set NAME max_mds NUMBER
 - **Damaged** - 损坏的等级；其元数据被损坏或缺失。在操作器修复问题之前，损坏的等级不会分配到任何 MDS 守护进程，并对损坏的等级使用 `ceph mds repaired` 的命令。
 
 ## 2.3 缓存大小限制
+
 可以通过以下方法限制 Ceph 文件系统 (CephFS) 元数据服务器 (MDS) 缓存的大小：
 
 - **内存限制** ：使用 `mds_cache_memory_limit` 选项。红帽建议为 `mds_cache_memory_limit` 设置 8 GB 到 64 GB 的值。设置更多缓存可能会导致恢复问题。这个限制是使用 MDS 所需最大内存用量的大约 66%。
 - **索引节点计数** ：使用 `mds_cache_size` 选项.默认情况下，禁用按索引节点计数限制 MDS 缓存。
 
 缓存限制不是硬限制。CephFS 客户端或 MDS 或 MDS 中潜在的错误行为或行为不当可能会导致 MDS 超过其缓存大小。`mds_health_cache_threshold` 选项配置存储集群健康警告消息，以便操作员可以调查 MDS 无法缩小其缓存的原因
-# 3 参考
+
+
+
+## 2.4 状态管理  
+
+
+## 2.5 元数据管理  
+- [元数据分区](mds/元数据分区.md)
+- 缓存管理
+
+## 2.6 扩缩容
+
+
+### 2.6.1 client和mds交互
+### 2.6.2 客户端选择mds
+
+`Client::choose_target_mds()`
+- 随机模式：`Client::_get_random_up_mds()`, 从up的rank中随机选择一个，可直接通过`client_use_random_mds`控制
+- hash模式：同时满足如下条件：
+    1. is_hash：有如下几种场景之一
+        1. req->inode，且req->path.depth()：
+        2. req->dentry()，且req->dentry()->inode == nullptr
+        3. req->inode，且in->snapid != CEPH_NOSNAP
+    2. in是目录
+    3. !in->fragmap.empty() || !in->frag_repmap.empty()
+    
+##### 2.6.2.1.1 典型模式 - 以mkdir为例
+
+##### 2.6.2.1.2 session管理
+
+
+
+##### 2.6.2.1.3 proto结构
+
+```c++
+//client/MetaRequest.h
+struct MetaRequest {
+  
+  
+}
+```
+
+
+
+
+
+# 3 caps机制
+
+
+
+# 4 分布式事务
+
+
+
+# 5 mdsmap
+
+## 5.1 mon简介
+
+
+
+## 5.2 mdsmap设计
+
+
+
+### 5.2.1 状态管理
+
+
+
+### 5.2.2 rank分布策略
+
+
+
+### 5.2.3 主要数据结构
+
+
+
+### 5.2.4 主要场景说明
+
+##### 5.2.4.1.1 启动mds
+
+##### 5.2.4.1.2 创建文件系统
+
+##### 5.2.4.1.3 创建rank
+
+##### 5.2.4.1.4 添加mds
+
+##### 5.2.4.1.5 再次添加mds
+
+##### 5.2.4.1.6 故障场景
+
+
+
+
+
+
+
+# 6 权限
+
+- [cephfs权限](特性/cephfs权限.md)
+
+# 7 配额
+- [cephfs配额](特性/cephfs配额.md)
+
+
+
+# 8 快照
+
+
+
+# 9 配置项
+
+1. `client_use_random_mds`:  Choose random MDS for each request， 默认值false
+
+# 10 参考
+
 1. [ceph版本演进增强列表](file:///Users/liunaipeng/Documents/SynologyDrive/LN_work/友商资料/cephfs/ceph版本演进增强列表(P-Q-R-S-T).xlsx)
 2. [文件系统指南](https://docs.redhat.com/zh-cn/documentation/red_hat_ceph_storage/4/html/file_system_guide/index)
+
+[^1]: https://cephdocs.readthedocs.io/en/latest/cephfs/dirfrags/
+
+[^2]: https://docs.ceph.com/en/quincy/cephfs/dirfrags
+[^3]: https://docs.ceph.com/en/quincy/cephfs/dirfrags/
 
