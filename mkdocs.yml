@@ -1,5 +1,5 @@
 site_name: Cephfs文档
+nav:
+  - Home: cephfs总览.md
 plugins:
-  - search:
-      # 关闭从内容提取导航
-      indexing: "full"
+  - search
