@@ -34,10 +34,6 @@ theme:
 
 plugins:
   - search
-  - mermaid2:
-      version: "10.1.0"
-      arguments:
-        theme: "default"
 
 # 👇 核心：列表 + 脚注 + Mermaid + 不提取标题
 markdown_extensions:
