@@ -1,10 +1,19 @@
 site_name: Cephfs文档
 theme:
-  name: material       # 必须用这个主题，所有功能原生支持
+  # The available installed themes are: 
+  # mkdocs, readthedocs, cerulean, cosmo, cyborg, darkly, flatly, journal, litera,
+  # lumen, lux, materia, minty, pulse, sandstone, simplex, slate, solar, spacelab, superhero, united, yeti
+  # 或者参考https://mkdocs.readthedocs.io/en/0.15.1/user-guide/styling-your-docs/
+  # name: material       # 必须用这个主题，所有功能原生支持
+  name: yeti
   language: zh
 
 plugins:
   - search
+  - mermaid2:
+      version: "10.1.0"
+      arguments:
+        theme: "default"
 
 # 👇 核心：列表 + 脚注 + Mermaid + 不提取标题
 markdown_extensions:
@@ -16,6 +25,7 @@ markdown_extensions:
   - def_list               # 定义列表（术语解释）
   - footnotes              # ✅ 脚注支持
   - admonition             # 提示框
+  - fenced_code            # 代码块支持
   - pymdownx.details
   - pymdownx.superfences:
       custom_fences:
