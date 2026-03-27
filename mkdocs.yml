@@ -54,8 +54,8 @@ markdown_extensions:
   - pymdownx.highlight:    # 代码高亮
       guess_lang: true
       anchor_linenums: true
-  - toc:
-      permalink: true
+  # - toc:
+  #     permalink: true
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
