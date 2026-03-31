@@ -44,10 +44,33 @@ radosgw-admin key create --subuser=johndoe:swift --key-type=swift --gen-secret
  1. **桶的所有者用户必须先存在**。如果用户不存在，需要先创建
  ```bash
  # 1. 创建用户（如果还没有）
- radosgw-admin user create \
-   --uid=johndoe \
-   --display-name="John Doe" \
-   --email=john@example.com
+radosgw-admin user create --uid=4001 --display-name=user1
+# 回显
+{
+     "user_id": "4001",
+     "display_name": "user1",
+     "email": "",
+     "suspended": 0,
+     "max_buckets": 1000,
+     "subusers": [],
+     "keys": [
+         {
+             "user": "4001",
+             "access_key": "KF8LPEA54DGT9SMI2KUY",
+             "secret_key": "WqUjZDnOYtEJew6ViW4TnvzmqeGnlyg9UQ6nbwvC"
+         }
+     ],
+     ...
+ }
+ ```
+ 2. 创建桶
+ 新版 Ceph 已经去掉了 `bucket create` 命令，Ceph 在 **Pacific 版之后** 就废弃了，现在创建桶必须通过 **S 3 协议** 或 **link 关联**。
+ ```bash
+ # 方法1：使用 s3cmd 创建桶（最简单、推荐）
+ s3cmd mb s3://my-new-bucket
+ 
+ # 方法2：使用 radosgw-admin 间接创建（先给用户，再自动生成）
+ radosgw-admin bucket link --bucket=my-new-bucket --uid=4001
  ```
 
 # 3 元数据管理
