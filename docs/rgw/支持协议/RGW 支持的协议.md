@@ -1,0 +1,5 @@
+- **S3 兼容（主协议）**
+- **OpenStack Swift 兼容**
+- **S3 Select**（简单对象内查询）
+- **STS 临时凭证**（v20.2 增强）
+- **OIDC / Keycloak 集成**

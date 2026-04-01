@@ -28,7 +28,52 @@ radosgw-admin subuser create --uid=johndoe --subuser=johndoe:swift --access=full
 radosgw-admin key create --subuser=johndoe:swift --key-type=swift --gen-secret
 ```
 
-# 2 桶管理
+# 2 Zone  
+1. 查询当前zone的配置
+```bash
+[root@node1 ~]# radosgw-admin zone get
+{
+    "id": "03b4c78e-c70f-4ad7-b229-608bff012f1b",
+    "name": "magnascale",
+    "domain_root": "magnascale.tos.meta:root",
+    "control_pool": "magnascale.tos.control",
+    ...
+}
+```
+
+2. 查询所有zone
+```bash
+[root@node1 ~]# radosgw-admin zone list
+{
+    "default_info": "03b4c78e-c70f-4ad7-b229-608bff012f1b",
+    "zones": [
+        "magnascale"
+    ]
+}
+```
+3. 查询当前的zonegroup
+```bash
+[root@node1 ~]# radosgw-admin zonegroup get
+{
+    "id": "14ebae29-9348-44fc-84ae-e9174054083b",
+    "name": "magnascale",
+    "api_name": "magnascale",
+    "is_master": "true",
+    "endpoints": [],
+    "hostnames": [],
+    ......
+}   
+```
+4. 创建新 zone（多站点用）
+```bash
+radosgw-admin zone modify --zone=zone名 --endpoint=http://x.x.x.x:8080
+```
+
+5. 删除zone
+```bash
+radosgw-admin zone delete --zone=zone名
+```
+# 3 桶管理
 
 | 操作 | 命令示例 | 说明 |
 |------|----------|------|
@@ -40,7 +85,7 @@ radosgw-admin key create --subuser=johndoe:swift --key-type=swift --gen-secret
 | **将桶关联给其他用户** | `radosgw-admin bucket link --bucket=mybucket --uid=otheruser` | 不改变所有权，仅关联 |
 | **更改桶所有权** | `radosgw-admin bucket chown --bucket=mybucket --uid=otheruser` | 彻底转移桶所有权 |
 
-## 2.1 创建桶 
+## 3.1 创建桶 
  1. **桶的所有者用户必须先存在**。如果用户不存在，需要先创建
  ```bash
  # 1. 创建用户（如果还没有）
@@ -73,7 +118,7 @@ radosgw-admin user create --uid=4001 --display-name=user1
  radosgw-admin bucket link --bucket=my-new-bucket --uid=4001
  ```
 
-# 3 元数据管理
+# 4 元数据管理
 
 RGW 的内部元数据存储在 RADOS 对象中，可通过 `metadata` 命令查看和修改。
 
@@ -99,7 +144,7 @@ radosgw-admin metadata get bucket:mybucket
 - `account`：账户级信息
 - `roles`：IAM 角色定义
 
-# 4 配额管理
+# 5 配额管理
 
 配额可限制用户或桶的资源使用量。
 
@@ -120,7 +165,7 @@ radosgw-admin quota disable --uid=johndoe --quota-scope=user
 ```
 
 
-# 5 多租户（Multi-tenancy）
+# 6 多租户（Multi-tenancy）
 
 从 Jewel 版本开始，RGW 支持多租户，允许多个用户使用相同的桶名（通过租户前缀隔离）。
 
@@ -137,7 +182,7 @@ radosgw-admin user create --uid='tenant1$tester' --display-name="Test User"
 - **S3 API**：URL 中使用冒号分隔，如 `http://rgw-host/tenant1:mybucket/myobject`
 - **公开读的桶**：必须带租户前缀访问，否则无法解析
 
-# 6 日志与使用统计
+# 7 日志与使用统计
 
 ```bash
 # 查看用户使用统计（某时间范围）
@@ -151,7 +196,7 @@ radosgw-admin usage show --show-log-entries=false
 radosgw-admin usage trim --uid=johndoe --end-date=2025-01-01
 ```
 
-# 7 常用运维命令速查
+# 8 常用运维命令速查
 
 | 场景 | 命令 |
 |------|------|
@@ -161,7 +206,7 @@ radosgw-admin usage trim --uid=johndoe --end-date=2025-01-01
 | **重新生成用户密钥** | `radosgw-admin key create --uid=johndoe --gen-access-key --gen-secret` |
 | **查看桶索引分片状态** | `radosgw-admin bucket stats --bucket=mybucket` 查看 `num_shards` 字段 |
 
-# 8 ⚠️ 重要提醒
+# 9 ⚠️ 重要提醒
 
 1. **版本一致性**：确保 `radosgw-admin` 和 Ceph 集群是**相同版本**，混用可能导致元数据损坏
 2. **JSON 转义问题**：某些客户端无法处理包含反斜杠 `\` 的密钥。如果生成的密钥包含 JSON 转义符，建议重新生成或手动指定
