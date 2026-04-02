@@ -27,6 +27,8 @@ AsioFrontend::accept()  // rgw_aio_frontend.cc
 
 `rest->get_handler()` 根据 URL/Method 匹配 Handler（如 `RGWHandler_REST_S3`） → `handler->get_op()` 实例化操作类（`RGWPutObj` / `RGWGetObj`）  
 
+class RGWOP 是虚类，各种操作对该类进行实现，比如 RGWGetObj(get操作)、RGWPutObj(put 操作）、RGWCreateBucket(创建桶操作)等等
+
 ```c++
 class RGWRESTMgr {
     virtual RGWHandler_REST* get_handler()
@@ -34,15 +36,26 @@ class RGWRESTMgr {
 
 int process_request()
     -> RGWHandler_REST *handler = rest->get_handler()
-    -> op = handler->get_op();
+    -> op = handler->get_op(); // 获取实例化操作类，比如RGWPutObj/RGWGetObj
+    -> rgw::lua::request::execute()
     -> op->verify_requester(); //认证
-    -> rgw_process_authenticated() //授权
+    -> rgw_process_authenticated() //认证完成后的op执行流程
+    -> （RGWRestfulIO)client_io->complete_request() //完成请求
 ```
 
 
 ## 1.4 执行流程  
+```c++
+rgw_process_authenticated() //认证完成后的op执行流程
+    -> handler->init_permissions()
+    -> op->init_processing
+    -> op->pre_exec() //预处理
+    -> op->execute()  //核心处理
+    -> op->complete() //收尾
+```
 
-
+# 2 Put 流程  
+ TODO
 
 
 [^1]: RGW Frontend 是 Ceph RGW 的 **HTTP 服务器组件**，负责：
