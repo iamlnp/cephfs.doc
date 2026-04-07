@@ -165,7 +165,6 @@ systemctl restart ceph-radosgw@rgw.tosa.service
 
 ![|375](assets/2026-03-31--IMG.png)  
 
-
 # 2 对象相关  
 ## 2.1 上传命令  
 1. 上传单个文件

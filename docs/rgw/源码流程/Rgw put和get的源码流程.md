@@ -34,6 +34,18 @@ class RGWRESTMgr {
     virtual RGWHandler_REST* get_handler()
 }
 
+class RGWOp : public DoutPrefixProvider {
+protected:
+    req_state *s;
+public:
+    virtual void send_response() {}
+    virtual void pre_exec() {}
+    virtual void execute(optional_yield y) = 0;
+    virtual void complete() {
+        send_response();
+    }
+}
+
 int process_request()
     -> RGWHandler_REST *handler = rest->get_handler()
     -> op = handler->get_op(); // 获取实例化操作类，比如RGWPutObj/RGWGetObj
@@ -48,14 +60,26 @@ int process_request()
 ```c++
 rgw_process_authenticated() //认证完成后的op执行流程
     -> handler->init_permissions()
-    -> op->init_processing
+    -> op->init_processing()
+    -> op->verify_op_mask()
+    -> op->verify_params()
     -> op->pre_exec() //预处理
     -> op->execute()  //核心处理
     -> op->complete() //收尾
 ```
 
 # 2 Put 流程  
- TODO
+```c++
+class RGWPutObj : public RGWOp {
+
+public:
+    void pre_exec() override;
+    void execute(optional_yield y) override;
+}
+```
+
+## 2.1 初始化处理  
+
 
 
 [^1]: RGW Frontend 是 Ceph RGW 的 **HTTP 服务器组件**，负责：
@@ -64,8 +88,8 @@ rgw_process_authenticated() //认证完成后的op执行流程
     - 调用 RGW 核心逻辑处理请求
     - 返回响应给客户端  
 
-[^2]: Civetweb 和 Beast 比较  
-    
+[^2]: Civetweb 和 Beast 比较
+
     | 对比项       | Civetweb            | Beast                  |
     |-----------|---------------------|------------------------|
     | 默认版本      | Luminous (12.x) 及之前 | Nautilus (14.x) 及之后    |
@@ -80,6 +104,9 @@ rgw_process_authenticated() //认证完成后的op执行流程
     | 配置复杂度     | 简单                  | 中等                     |
     | 调试难度      | 简单                  | 中等                     |
     | 开发活跃度     | 低（仅维护）              | 高（主推）                  |
+
+
+​    
     Civetweb 配置方式：  
     ```bash
     [client.rgw.tosa]

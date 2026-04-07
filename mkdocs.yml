@@ -12,6 +12,7 @@ theme:
     - navigation.sections       # 导航分组可折叠展开
     - navigation.top            # 显示返回顶部按钮
     - navigation.indexes        # 允许索引页作为可折叠节点
+    - navigation.tracking       # 🔧 添加：滚动时自动更新侧边栏高亮
     - search.suggest            # 搜索时提供建议
     - search.highlight          # 搜索结果高亮显示
     - content.code.annotate     # 支持代码注解（行内注释）

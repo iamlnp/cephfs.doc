@@ -61,4 +61,4 @@ RGWUser::add()
 
 
 # 参考  
-1. [radosgw-admin工具](操作类/radosgw-admin工具.md)
+1. [radosgw-admin工具](../操作类/radosgw-admin工具.md)

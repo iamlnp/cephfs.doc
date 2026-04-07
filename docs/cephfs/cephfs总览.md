@@ -41,8 +41,3 @@ tags:
 
 1. [ceph版本演进增强列表](file:///Users/liunaipeng/Documents/SynologyDrive/LN_work/友商资料/cephfs/ceph版本演进增强列表(P-Q-R-S-T).xlsx)
 2. [文件系统指南](https://docs.redhat.com/zh-cn/documentation/red_hat_ceph_storage/4/html/file_system_guide/index)
-
-[^1]: https://cephdocs.readthedocs.io/en/latest/cephfs/dirfrags/
-[^2]: https://docs.ceph.com/en/quincy/cephfs/dirfrags
-[^3]: https://docs.ceph.com/en/quincy/cephfs/dirfrags/
-
