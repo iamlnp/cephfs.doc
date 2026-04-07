@@ -105,9 +105,9 @@ radosgw-admin user create --uid=4001 --display-name=user1
              "secret_key": "WqUjZDnOYtEJew6ViW4TnvzmqeGnlyg9UQ6nbwvC"
          }
      ],
-     ...
  }
  ```
+ 
  2. 创建桶
  新版 Ceph 已经去掉了 `bucket create` 命令，Ceph 在 **Pacific 版之后** 就废弃了，现在创建桶必须通过 **S 3 协议** 或 **link 关联**。
  ```bash

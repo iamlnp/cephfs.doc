@@ -179,6 +179,7 @@ int main() //radosgw.cc
         
 //ceph20
 int main()
+    -> rgw::AppMain main(&dp);
     -> driver = DriverManager::get_storage()
 ```
 4. op返回值
