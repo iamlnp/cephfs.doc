@@ -1,11 +1,14 @@
 ---
 年份:
   - "2026"
+状态:
+  - 进行中
 月份:
   - 3月
 imageNameKey: rgw总览
 tags:
   - rgw
+  - 技术学习
 ---
 # 1 基本概念 
 ## 1.1 [Rgw核心概念](基本概念/Rgw核心概念.md)  
@@ -28,4 +31,6 @@ tags:
 
 # 5 源码流程
 ## 5.1 [Rgw命令管理源码流程](源码流程/Rgw命令管理源码流程.md)  
-## 5.2 [Rgw put和get的源码流程-ceph20](源码流程/Rgw%20put和get的源码流程-ceph20.md)
+## 5.2 [Rgw put和get的源码流程-ceph20](源码流程/Rgw%20put和get的源码流程-ceph20.md)  
+## 5.3 [杂记](源码流程/杂记.md)  
+

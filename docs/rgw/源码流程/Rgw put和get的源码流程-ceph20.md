@@ -60,6 +60,7 @@ public:
 
 int process_request()
     -> RGWHandler_REST *handler = rest->get_handler() //根据请求方法（PUT）、URL（bucket/object）匹配 S3 处理器
+        -> preprocess()
     -> op = handler->get_op(); // 获取实例化操作类，比如RGWPutObj/RGWGetObj
     -> rgw::lua::request::execute()
     -> op->verify_requester(); //认证
@@ -155,41 +156,30 @@ void RGWPutObj::execute(optional_yield y)
 | 调用关系 | 上层入口 → 调用下层                                                              | 下层实现 → 被上层调用                                                                                |
 | 异常处理 | HTTP 状态码（403/412/400/500）                                                | 内部错误码，抛给上层处理                                                                                |
 
+# 3 List buckets  - list bucket中的内容
+RGWListBuckets_ObjStore_S3  
 
+对应操作： python3 /usr/bin/s3cmd ls s3://my-new-bucket
 
-# 3 杂记  
-1. 在rgw::sal::Driver* newBaseFilter中生成rgw::sal::FilterDriver* driver对象，FilterDriver继承自class Driver
-2. 调用链
 ```c++
-static rgw::sal::Driver* get_storage() //Get a full driver by service name
-    -> rgw::sal::Driver* DriverManager::init_storage_provider()
-        -> rgw::sal::Driver* newBaseFilter()
+class RGWListBuckets_ObjStore_S3 : public RGWListBuckets_ObjStore {
+
+}
+
+class RGWListBuckets_ObjStore : public RGWListBuckets {
+
+}
+
+class RGWListBuckets : public RGWOp {
+public:
+    void pre_exec() override;
+    void execute(optional_yield y) override;
+}
 ```
 
-3. rgw启动调用链
-```c++
-//以下是ceph15
-int main() //radosgw.cc
-    -> int radosgw_Main() //rgw_main.cc
-        -> global_init()
-        -> 初始化frontend，默认civetweb，根据rgw_frontends配置
-            -> 创建RGWFrontendConfig *config对象
-            -> config->init()
-        -> store->getRados()->register_to_service_map("rgw", service_map_meta)
-        
-//ceph20
-int main()
-    -> rgw::AppMain main(&dp);
-    -> driver = DriverManager::get_storage()
-```
-4. op返回值
-```c++
-// 返回各种底层操作OP
-int process_request()
-    -> RGWHandler_REST::get_op()
-        -> case OP_PUT => RGWHandler_REST_Obj_S3::op_put()
-
-```
+### 3.1.1 核心执行阶段  
+#### 3.1.1.1 RGWListBucket::execute  
+ 
 
 
 [^1]: RGW Frontend 是 Ceph RGW 的 **HTTP 服务器组件**，负责：
