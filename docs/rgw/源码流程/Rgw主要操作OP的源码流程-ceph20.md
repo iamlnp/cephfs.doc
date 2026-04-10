@@ -26,14 +26,48 @@ main() //rgw_main.cc
         -> fe->run()
 ```
 
-Civetweb vs Beast[^2]是 **Ceph RGW (RADOS Gateway)** 支持的**前端（Frontend）**，负责处理 HTTP/HTTPS 请求并与 S3/Swift API 交互。
+Civetweb vs Beast[^2]是 **Ceph RGW (RADOS Gateway)** 支持的**前端（Frontend）**，负责处理 HTTP/HTTPS 请求并与 S3/Swift API 交互。  
+
+Civetweb 配置方式：  
+```bash
+[client.rgw.tosa]
+rgw_frontends = civetweb port=7480
+# 带 SSL
+rgw_frontends = civetweb port=7480 ssl_port=7481 ssl_certificate=/etc/ceph/cert.pem
+# 更多选项
+rgw_frontends = civetweb port=7480 num_threads=100 request_timeout_ms=30000
+```
+Beast 配置方式：  
+```bash
+[client.rgw.tosa]
+rgw_frontends = beast port=8184
+# 带 SSL
+rgw_frontends = beast port=8184 ssl_port=8182 ssl_certificate=/etc/ceph/cert.pem
+# 多线程（推荐）
+rgw_frontends = beast port=8184 ssl_port=8182 ssl_certificate=/etc/ceph/cert.pem num_threads=24
+```
+
+Civetweb（多线程模型）  
+```bash
+客户端请求 → 主线程接收 → 分配线程 → 线程处理请求 → 返回响应
+                ↓
+        每增加一个连接，增加一个线程
+        10,000 连接 = 10,000 个线程
+```
+Beast（异步模型）  
+```bash
+客户端请求 → IO 线程接收 → 注册回调 → 继续处理其他请求 → 回调返回响应
+                ↓
+        少量线程（如 24 个）处理数万连接
+        10,000 连接 = 24 个线程
+```
 
 ## 1.2 请求处理  
 ```c++
 AsioFrontend::accept()  // rgw_aio_frontend.cc
     -> AsioFrontend::on_accept() // rgw_aio_frontend.cc
         -> void handle_connection() // rgw_aio_frontend.cc
-            -> int process_request() // 核心处理函数：rgw_process.cc
+            -> int process_request() // 核心处理函数：rgw_process.cc, 日志： starting new request req 
 ```
 ## 1.3 路由分发  
 
@@ -75,6 +109,7 @@ rgw_process_authenticated() //认证完成后的op执行流程
     -> handler->init_permissions()
     -> op->init_processing()
     -> op->verify_op_mask()
+    -> op->verify_permission(y);
     -> op->verify_params()
     -> op->pre_exec() //step1: 预处理，前置校验与准备
     -> op->execute()  //step2: 数据读写核心流程
@@ -182,6 +217,172 @@ public:
  
 
 
+# 4 创建Bucket流程  
+用 S3 命令（s3cmd /awscli/boto3 等）创建的是 RadosBucket（标准对象存储桶）[^3]
+
+```c++
+class RGWCreateBucket_ObjStore_S3 : public RGWCreateBucket_ObjStore {
+public:
+    RGWCreateBucket_ObjStore_S3() {}
+    ~RGWCreateBucket_ObjStore_S3() override {}
+
+    int get_params(optional_yield y) override;
+    void send_response() override;
+};
+
+
+class RGWCreateBucket_ObjStore : public RGWCreateBucket {
+public:
+  RGWCreateBucket_ObjStore() {}
+  ~RGWCreateBucket_ObjStore() override {}
+
+  virtual std::string canonical_name() const override { return fmt::format("REST.{}.BUCKET", s->info.method); }
+};
+
+class RGWCreateBucket : public RGWOp {
+    int verify_permission(optional_yield y) override;
+    void pre_exec() override;
+    void execute(optional_yield y) override;
+    void init(rgw::sal::Driver* driver, req_state *s, RGWHandler *h) override {
+        RGWOp::init(driver, s, h);
+        relaxed_region_enforcement =
+        s->cct->_conf.get_val<bool>("rgw_relaxed_region_enforcement");
+    }
+    virtual int get_params(optional_yield y) { return 0; }
+    void send_response() override = 0;
+}
+
+// rgw_sal_rados.h
+class RadosBucket : public StoreBucket {
+
+}
+```
+
+## 4.1 创建整体简要流程  
+### 4.1.1 API 入口与权限校验
+RGWCreateBucket::verify_permission()  
+1. 用户权限检查： verify_user_permission()
+2. 检查用户的桶数量上限： check_owner_max_buckets()
+
+### 4.1.2 核心流程  
+RGWCreateBucket::execute(optional_yield y)  
+1. **选择placement**  
+select_bucket_placement() //select and validate the placement target
+
+2. **检查是否已经存在待创建的桶**    
+    - 加载处理：driver->load_bucket(), 即RadosBucket::load_bucket()  
+        - if bucket_id为空，则 `store->ctl()->bucket->read_bucket_info`
+            - read_bucket_entrypoint_info()
+            - read_bucket_instance_info()
+                - do_read_bucket_instance_info
+        - 否则：`store->ctl()->bucket->read_bucket_instance_info`
+    - 如果存在：获取已存在桶的部分属性作为待创建桶的参数
+        - swift_ver_location
+        - placement_rule
+
+3. **组装创建桶需要的参数**    
+    - zonegroup_id
+    - zone_placement
+    - swift_ver_location
+    - placement_rule
+    - owner
+    - attrs(不局限于如下两个)
+        - RGW_ATTR_ACL
+        - RGW_ATTR_CORS
+    - quota
+
+4. **检查是否是master zone，如果不是，则优先转发给master创建**
+    - rgw_forward_request_to_master()
+    - 如下从master获取
+        - marker
+        - bucket_id
+        - zonegroup_id
+        - obj_lock_enabled
+        - quota
+        - creation_time
+5. **创建桶并且持久化    
+    - 创建bucket:  s->bucket->create(this, createparams, y)
+        - RadosBucket::create()  
+            - store->get_rados()->create_bucket():  RGWRados::create_bucket(...)
+                - 生成版本号： generate_new_write_ver()
+                - 创建桶id： create_bucket_id()
+                - RGWRados::put_linked_bucket_info()
+                    - 元数据持久化 BucketInfo结构：RGWRados::put_bucket_instance_info
+                    - ctl.bucket->store_bucket_entrypoint_info()
+            - RadosBucket::link()
+                - store->ctl()->bucket->link_bucket() - RGWBucketCtl::link_bucket() 
+                    - 持久化bucket entrypoint结构： - svc.bucket->store_bucket_entrypoint_info()
+            - store->ctl()->bucket->read_bucket_entrypoint_info()
+
+扩展属性（xattrs/attrs）处理 ？
+原子提交与返回  ？
+
+### 4.1.3 元数据  
+
+#### 4.1.3.1 BucketEntryPoint  
+Bucket 的入口信息（BucketEntryPoint），也就是桶的 “身份证”  
+
+读取函数：   
+RGWSI_Bucket_SObj::read_bucket_entrypoint_info(),   
+```c++
+int RGWSI_Bucket_SObj::read_bucket_entrypoint_info(
+    const string& key,                          // 桶的key：root/bucket.{bucket_name}
+    RGWBucketEntryPoint *entry_point,           // 输出：解码后的桶入口信息
+    RGWObjVersionTracker *objv_tracker,         // 对象版本追踪
+    real_time *pmtime,                          // 输出：修改时间
+    map<string, bufferlist> *pattrs,            // 输出：扩展属性 xattrs
+    optional_yield y,                           // 协程yield
+    const DoutPrefixProvider *dpp,              // 日志
+    rgw_cache_entry_info *cache_info,           // 缓存
+    boost::optional<obj_version> refresh_version)
+```
+其中RGW 存储桶入口元数据的 RADOS 池， 默认 default.rgw.meta，const rgw_pool& pool = svc.zone->get_zone_params().domain_root
+
+可以使用 `radosgw-admin zone get --default` 查询  :  
+```bash
+{
+    "id": "0f2f1491-1607-439d-a1b0-6e88fe76cc6d",
+    "name": "default",
+    "domain_root": "default.rgw.meta:root",
+    "control_pool": "default.rgw.control",
+    "dedup_pool": "default.rgw.dedup",
+    "gc_pool": "default.rgw.log:gc",
+    ...
+}
+```
+
+读取omap： RGWSI_SysObj_Core::read()  
+- librados::ObjectReadOperation op 
+    - op.read(ofs, len, bl, nullptr)
+    - op.getxattrs()
+- RGWSI_SysObj_Core::get_rados_obj
+- RGWSI_SysObj_Core::rgw_rados_operate
+
+#### 4.1.3.2 Bucket信息-RGWBucketInfo  
+
+#### 4.1.3.3 核心元数据  
+
+#### 4.1.3.4 桶索引对象  
+
+#### 4.1.3.5 名称映射 
+
+### 4.1.4 扩展属性  
+
+两类属性：系统 vs 用户    
+- **系统属性（System attrs）**：RGW 内部使用
+    - `user`、`owner`、`owner_display_name`
+    - `acl`、`policy`、`creation_time`
+    - `quota`、`max_size`、`max_objects`
+    - `placement_id`、`zonegroup`、`region`
+    - `versioning`、`encryption`、`lock_mode`
+- **用户扩展属性（User xattrs）**
+    - S3：`x-amz-meta-key: value`
+    - Swift：`X-Object-Meta-*`
+    - Bucket tags（`tag1=val1&tag2=val2`
+存储位置（关键）：  
+
+
+
 [^1]: RGW Frontend 是 Ceph RGW 的 **HTTP 服务器组件**，负责：
     - 监听端口接收 S3/Swift API 请求
     - 解析 HTTP 请求
@@ -205,38 +406,6 @@ public:
     | 调试难度      | 简单                  | 中等                     |
     | 开发活跃度     | 低（仅维护）              | 高（主推）                  |
 
+​   
 
-​    
-    Civetweb 配置方式：  
-    ```bash
-    [client.rgw.tosa]
-    rgw_frontends = civetweb port=7480
-    # 带 SSL
-    rgw_frontends = civetweb port=7480 ssl_port=7481 ssl_certificate=/etc/ceph/cert.pem
-    # 更多选项
-    rgw_frontends = civetweb port=7480 num_threads=100 request_timeout_ms=30000
-    ```
-    Beast 配置方式：  
-    ```bash
-    [client.rgw.tosa]
-    rgw_frontends = beast port=8184
-    # 带 SSL
-    rgw_frontends = beast port=8184 ssl_port=8182 ssl_certificate=/etc/ceph/cert.pem
-    # 多线程（推荐）
-    rgw_frontends = beast port=8184 ssl_port=8182 ssl_certificate=/etc/ceph/cert.pem num_threads=24
-    ```
-    
-    Civetweb（多线程模型）  
-    ```bash
-    客户端请求 → 主线程接收 → 分配线程 → 线程处理请求 → 返回响应
-                    ↓
-            每增加一个连接，增加一个线程
-            10,000 连接 = 10,000 个线程
-    ```
-    Beast（异步模型）  
-    ```bash
-    客户端请求 → IO 线程接收 → 注册回调 → 继续处理其他请求 → 回调返回响应
-                    ↓
-            少量线程（如 24 个）处理数万连接
-            10,000 连接 = 24 个线程
-    ```
+[^3]: 参阅：[对象桶简要介绍](../基本概念/对象桶简要介绍.md)
