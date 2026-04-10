@@ -14,7 +14,8 @@ Ceph RGW 的 **Put Object（上传）** 与 **Get Object（下载）** 是对象
 
 所有 RGW 请求（含 Put/Get）均从前端（如 Civetweb、Beast）接入，经统一调度后分发到对应操作类执行。  
 # 1 概要  
-## 1.1 前端**Frontend**[^1]入口  
+## 1.1 处理框架
+### 1.1.1 前端**Frontend**[^1]入口  
 ```c++
 main() //rgw_main.cc
     -> rgw::AppMain::init_frontends1()
@@ -62,14 +63,14 @@ Beast（异步模型）
         10,000 连接 = 24 个线程
 ```
 
-## 1.2 请求处理  
+### 1.1.2 请求处理  
 ```c++
 AsioFrontend::accept()  // rgw_aio_frontend.cc
     -> AsioFrontend::on_accept() // rgw_aio_frontend.cc
         -> void handle_connection() // rgw_aio_frontend.cc
             -> int process_request() // 核心处理函数：rgw_process.cc, 日志： starting new request req 
 ```
-## 1.3 路由分发  
+### 1.1.3 路由分发  
 
 `rest->get_handler()` 根据 URL/Method 匹配 Handler（如 `RGWHandler_REST_S3`） → `handler->get_op()` 实例化操作类（`RGWPutObj` / `RGWGetObj`）  
 
@@ -103,7 +104,7 @@ int process_request()
 ```
 
 
-## 1.4 执行流程  
+### 1.1.4 执行流程  
 ```c++
 rgw_process_authenticated() //认证完成后的op执行流程
     -> handler->init_permissions()
@@ -116,8 +117,91 @@ rgw_process_authenticated() //认证完成后的op执行流程
     -> op->complete() //step3: 元数据更新与收尾
 ```
 
+## 1.2 强一致性保证  
+- **强一致性**：为了保证对象的上传/删除与索引更新的原子性，RGW设计了一套**3步索引事务（Index Transaction）** 机制[^3]。
+    1. **Prepare**：在索引中预操作，将对象标记为 `pending` （待处理）状态。
+    2. **Write/Delete**：在数据池中执行实际的对象数据写入或删除。
+    3. **Commit/Cancel**：若数据操作成功，则提交事务，将索引条目状态更新为 `completed` （已完成）；若失败，则取消事务。
+- **故障自愈**：如果RGW在处理过程中崩溃，可能会导致某些索引条目长时间停留在 `pending` 状态。当客户端后续列出桶时，RGW会检测到这些 `pending` 条目，并去检查对应的实际对象是否存在，然后用检查结果来“修正”索引（这个过程称为 `dir suggest` ）  [^4]
+
 # 2 Put 流程  
-## 2.1 RGWPutObj - REST 前端操作（S3/Swift 入口）
+
+## 2.1 类继承体系与核心职责  
+
+  
+```mermaid
+classDiagram
+    class RGWOp {
+        <<abstract>>
+        +verify_permission()
+        +execute()
+        +send_response()
+    }
+    class RGWPutObj {
+        +verify_permission()
+        +execute()
+    }
+    class RGWPutObj_ObjStore {
+        <<abstract>>
+        +get_data()
+        #processor
+    }
+    class RGWPutObj_ObjStore_S3 {
+        +get_params()
+        +send_response()
+    }
+    class RGWPutObj_ObjStore_Swift {
+        +get_params()
+        +send_response()
+    }
+
+    RGWOp <|-- RGWPutObj
+    RGWPutObj <|-- RGWPutObj_ObjStore
+    RGWPutObj_ObjStore <|-- RGWPutObj_ObjStore_S3
+    RGWPutObj_ObjStore <|-- RGWPutObj_ObjStore_Swift
+```
+
+- **`RGWOp`**: 所有RGW操作的顶层基类，定义了 `verify_permission()`、`execute()`、`send_response()` 等标准生命周期方法。
+- **`RGWPutObj`**: 对象上传操作的直接基类，在 `execute()` 中实现了上传流程的骨架。
+- **`RGWPutObj_ObjStore`**: 协议无关的核心逻辑实现层。它不关心请求是通过S3还是Swift来的，专注于处理数据流和调用底层存储接口。
+- **`RGWPutObj_ObjStore_S3`/`_Swift`**: 协议相关的具体实现，负责解析特定协议（如S3或Swift）的请求头、参数，并按该协议格式发送响应
+
+## 2.2 分步流程简要说明  
+### 2.2.1 协议解析与参数提取  
+在 `RGWPutObj_ObjStore_S3::get_params()` 中，系统会解析HTTP请求，将各种头域转换为RGW的内部数据结构[^5]。这包括：
+
+- **元数据**: 将 `x-amz-meta-` 开头的头域存入 `x_meta_map`。
+- **访问策略**: 解析并创建S3兼容的策略对象。
+- **对象标签**: 解析 `x-amz-tagging` 头。
+- **对象锁**: 解析 `x-amz-object-lock-mode`、`x-amz-object-lock-retain-until-date` 等头域，用于WORM（一次写入，多次读取）功能。
+- **MD5校验**: 获取 `Content-MD5` 头，用于端到端的数据完整性校验。
+- **特殊模式识别**: 识别是否为Copy操作、分段上传、追加上传等。
+
+### 2.2.2 权限验证  
+`RGWPutObj` 基类实现的 `verify_permission()` 方法会检查请求者是否拥有目标桶的上传权限。这包括验证用户身份（签名）以及评估相关的桶策略（Bucket Policy）或ACL[^6]。  
+
+### 2.2.3 数据处理器 (Processor) 初始化与选择
+
+`RGWPutObj::execute()` 的核心逻辑是根据请求类型，初始化不同的数据处理器（Processor），将数据流导向不同的处理逻辑。`RGWPutObj_ObjStore` 作为基类，定义了使用处理器的框架。  
+
+| 处理器类型                    | 适用场景                    | 关键行为                                        |
+|--------------------------|-------------------------|---------------------------------------------|
+| AtomicObjectProcessor    | 普通单次PUT上传               | 在一个原子操作中完成对象数据的写入和元数据的更新。这是最常见的场景。          |
+| MultipartObjectProcessor | 分段上传 (Multipart Upload) | 处理通过 UploadPart 请求上传的数据块，将其写入一个临时的、独特的分段对象。 |
+| AppendObjectProcessor    | 追加上传 (Append Object)    | 允许在现有对象后追加数据，用于实现类似日志文件的操作模式。               |
+### 2.2.4 数据流处理与写入  
+这是数据面最核心的环节。`RGWPutObj_ObjStore::get_data()` 方法负责从socket读取HTTP请求体（即对象内容），并将其写入RADOS。
+- **流式处理**: `get_data()` 会被循环调用，每次读取一块数据（通常为4MB），避免将整个大对象加载到内存中。
+- **写入管道**: 获取到的数据块 `bufferlist` 被传递给选中的 `Processor`，后者负责将数据编码为RADOS对象，并写入到 `{zone}.rgw.buckets.data` 存储池中。
+- **流量控制与记账**: 代码中通过 `ACCOUNTING_IO(s)->set_account(true)` 等宏来精确统计上传的字节数，用于带宽控制和计费[](https://git.ceph.com/?p=ceph.git;a=patch;h=refs/pull/16174/head)。
+- **完整性校验**: 如果客户端提供了 `Content-MD5`，系统会在数据接收完成后计算接收数据的MD5值并与客户端提供的值进行比对，若不匹配则上传失败。
+
+### 2.2.5 元数据更新与响应  
+数据成功写入RADOS后，处理器会负责更新桶索引（Bucket Index）。桶索引记录了桶内所有对象的列表及其元数据（如名称、大小、ETag），这对于 `ListObjects` 操作至关重要。
+
+最后，协议相关的子类（如 `RGWPutObj_ObjStore_S3`）会调用 `send_response()`，构造符合S3规范的响应，并将新对象的ETag（MD5哈希值）通过HTTP头返回给客户端。  
+
+## 2.3 RGWPutObj - REST 前端操作（S3/Swift 入口）
 ```c++
 class RGWPutObj : public RGWOp {
 
@@ -127,9 +211,9 @@ public:
 }
 ```
 
-### 2.1.1 核心执行阶段  
+### 2.3.1 核心执行阶段  
 PUT 上传分**pre_exec、execute、complete**三阶段：  
-#### 2.1.1.1 阶段 1：pre_exec  
+#### 2.3.1.1 阶段 1：pre_exec  
 ```c++
 // s是基类RGWOP中字段：req_state *s
 void RGWPutObj::pre_exec()
@@ -138,7 +222,7 @@ void RGWPutObj::pre_exec()
 }
 ```
 
-#### 2.1.1.2 阶段2：execute  
+#### 2.3.1.2 阶段2：execute  
 ```c++
 //数据读写核心流程
 void RGWPutObj::execute(optional_yield y)
@@ -166,7 +250,7 @@ void RGWPutObj::execute(optional_yield y)
     */
 }
 ```
-##### 2.1.1.2.1 RGWPutObj::get_data  
+##### 2.3.1.2.1 RGWPutObj::get_data  
 
 1. read_op->prepare()
 2. rgw_compression_info_from_attrset()
@@ -176,49 +260,66 @@ void RGWPutObj::execute(optional_yield y)
 6. filter->flush()
 
 
+#### 2.3.1.3 阶段3：complete  
 
-#### 2.1.1.3 阶段3：complete
-## 2.2 RGWPutObj_ObjStore - 底层存储驱动（直接写 RADOS） 
 
- 创建位置：
+## 2.4 RGWPutObj_ObjStore - 底层存储驱动（直接写 RADOS） 
 
-| 维度   | RGWPutObj                                                                | RGWPutObj_ObjStore                                                                          |
-|------|--------------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| 归属模块 | REST 前端（S3/Swift 协议处理）                                                   | RADOS 存储驱动（后端存储）                                                                            |
-| 核心职责 | 1. 解析 HTTP 请求 / 头2. 权限 / 条件 / 配额校验3. 选择原子 / 分段处理器4. 读数据、限流、校验5. 调用底层存储接口 | 1. 纯数据写入（条带化、AIO）2. 管理 obj_manifest3. 写 RADOS 数据 / Shadow 对象4. 计算 ETag/MD5/CRC5. 原子提交、更新元数据 |
-| 生命周期 | 每个 HTTP PUT 请求创建一个                                                       | 被 RGWPutObj 创建并调用                                                                           |
-| 关键方法 | pre_exec()<br>execute()<br>complete()                                    | prepare()<br>process_data()<br>finish_data()<br>complete()                                  |
-| 调用关系 | 上层入口 → 调用下层                                                              | 下层实现 → 被上层调用                                                                                |
-| 异常处理 | HTTP 状态码（403/412/400/500）                                                | 内部错误码，抛给上层处理                                                                                |
+ `RGWPutObj_ObjStore` 是 Ceph RADOS Gateway (RGW) 中处理对象上传请求的核心基类， 在RGW的操作类体系中处于中间层位置。它位于S3和Swift等协议层与底层RADOS存储层之间，承担着参数解析、权限验证、数据处理与持久化的关键职责[^7]。
 
-# 3 List buckets  - list bucket中的内容
-RGWListBuckets_ObjStore_S3  
+| 维度   | RGWPutObj                                                                                                          | RGWPutObj_ObjStore                                                                                          |
+| ---- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| 归属模块 | REST 前端（S3/Swift 协议处理）                                                                                             | RADOS 存储驱动（后端存储）                                                                                            |
+| 核心职责 | 1. 解析 HTTP 请求 / 头<br>2. 权限 / 条件 / 配额校验<br>3. 选择原子 / 分段处理器<br>4. 读数据、限流、校验<br>5. 调用底层存储接口，最终会到 `RGWPutObj_ObjStore` | 1. 纯数据写入（条带化、AIO）<br>2. 管理 obj_manifest<br>3. 写 RADOS 数据 / Shadow 对象<br>4. 计算 ETag/MD5/CRC<br>5. 原子提交、更新元数据 |
+| 生命周期 | 每个 HTTP PUT 请求创建一个                                                                                                 | 被 RGWPutObj 创建并调用                                                                                           |
+| 关键方法 | pre_exec()<br>execute()<br>complete()                                                                              | prepare()<br>process_data()<br>finish_data()<br>complete()                                                  |
+| 调用关系 | 上层入口 → 调用下层                                                                                                        | 下层实现 → 被上层调用                                                                                                |
+| 异常处理 | HTTP 状态码（403/412/400/500）                                                                                          | 内部错误码，抛给上层处理                                                                                                |
 
-对应操作： python3 /usr/bin/s3cmd ls s3://my-new-bucket
+ 
+# 3 Get流程  
+## 3.1 类继承体系与核心职责  
 
-```c++
-class RGWListBuckets_ObjStore_S3 : public RGWListBuckets_ObjStore {
+**核心职责**：将RADOS中存储的对象数据，通过HTTP响应流式返回给客户端。  
+```mermaid
+classDiagram
+    class RGWOp {
+        <<abstract>>
+        +verify_permission()
+        +execute()
+        +send_response()
+    }
+    class RGWGetObj {
+        +verify_permission()
+        +execute()
+    }
+    class RGWGetObj_ObjStore {
+        <<abstract>>
+        +get_data()
+        #filter_ctx
+    }
+    class RGWGetObj_ObjStore_S3 {
+        +send_response()
+        +get_params()
+    }
+    class RGWGetObj_ObjStore_Swift {
+        +send_response()
+        +get_params()
+    }
 
-}
-
-class RGWListBuckets_ObjStore : public RGWListBuckets {
-
-}
-
-class RGWListBuckets : public RGWOp {
-public:
-    void pre_exec() override;
-    void execute(optional_yield y) override;
-}
+    RGWOp <|-- RGWGetObj
+    RGWGetObj <|-- RGWGetObj_ObjStore
+    RGWGetObj_ObjStore <|-- RGWGetObj_ObjStore_S3
+    RGWGetObj_ObjStore <|-- RGWGetObj_ObjStore_Swift
 ```
 
-### 3.1.1 核心执行阶段  
-#### 3.1.1.1 RGWListBucket::execute  
- 
+## 3.2 关键处理流程  
+
+![420](assets/Rgw主要操作OP的源码流程-ceph20/deepseek_mermaid_20260410_c20326.svg)
 
 
 # 4 创建Bucket流程  
-用 S3 命令（s3cmd /awscli/boto3 等）创建的是 RadosBucket（标准对象存储桶）[^3]
+用 S3 命令（s3cmd /awscli/boto3 等）创建的是 RadosBucket（标准对象存储桶）[^8]
 
 ```c++
 class RGWCreateBucket_ObjStore_S3 : public RGWCreateBucket_ObjStore {
@@ -257,6 +358,34 @@ class RadosBucket : public StoreBucket {
 
 }
 ```
+
+类继承体系：  
+```mermaid
+classDiagram
+    class RGWOp {
+        <<abstract>>
+        +verify_permission()
+        +execute()
+        +send_response()
+    }
+    class RGWCreateBucket {
+        +verify_permission()
+        +execute()
+    }
+    class RGWCreateBucket_ObjStore {
+        <<abstract>>
+    }
+    class RGWCreateBucket_ObjStore_S3 {
+        +get_params()
+        +send_response()
+    }
+
+    RGWOp <|-- RGWCreateBucket
+    RGWCreateBucket <|-- RGWCreateBucket_ObjStore
+    RGWCreateBucket_ObjStore <|-- RGWCreateBucket_ObjStore_S3
+```
+
+
 
 ## 4.1 创建整体简要流程  
 ### 4.1.1 API 入口与权限校验
@@ -315,12 +444,12 @@ select_bucket_placement() //select and validate the placement target
             - store->ctl()->bucket->read_bucket_entrypoint_info()
 
 扩展属性（xattrs/attrs）处理 ？
-原子提交与返回  ？
+原子提交与返回  ？  
 
 ### 4.1.3 元数据  
 
 #### 4.1.3.1 BucketEntryPoint  
-Bucket 的入口信息（BucketEntryPoint），也就是桶的 “身份证”  
+Bucket 的入口信息（BucketEntryPoint），也就是桶的 “身份证”  ,可以把 `EntryPoint` 理解为一个从不更改的**门牌号**，而 `RGWBucketInfo` 则是门牌号背后可能随时调整的**住户档案**。这种分离设计是 RGW 实现**桶重分片（resharding）**、**多区域**等高级特性的基础。
 
 读取函数：   
 RGWSI_Bucket_SObj::read_bucket_entrypoint_info(),   
@@ -358,13 +487,60 @@ int RGWSI_Bucket_SObj::read_bucket_entrypoint_info(
 - RGWSI_SysObj_Core::get_rados_obj
 - RGWSI_SysObj_Core::rgw_rados_operate
 
-#### 4.1.3.2 Bucket信息-RGWBucketInfo  
+#### 4.1.3.2 Bucket信息-RGWBucketInfo
+ `RGWBucketInfo` 包含了管理一个 bucket 所需的所有动态元数据。如果说 EntryPoint 是“门牌号”，那么 Info 就是“房间内部的所有装修和配置”。  
 
+在 RADOS 存储中，`RGWBucketInfo` 对象存储为 `.bucket.meta.{tenant}:{bucket-name}:{bucket-id}`，通常位于与 EntryPoint 相同的 `{zone}.rgw.meta` 池中。  
+
+它的数据结构比 EntryPoint 复杂得多，包含但不限于以下核心字段：
+
+| 核心功能分类 | 字段示例                                        | 作用说明                                                                                                                                                                      |
+| ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 基础身份   | `bucket`                                    | 包含完整的 `bucket_id`，其值必须与 `EntryPoint` 中的 ID 严格一致。                                                                                                                          |
+| 拥有者与权限 | `owner`, `acl`                              | 定义谁拥有这个桶以及详细的访问控制策略。                                                                                                                                                      |
+| 存储策略   | `placement_rule`, `data_pool`, `index_pool` | 决定数据存储在哪个存储池、使用何种存储类别（如SSD/HDD）以及索引分片数量等[](https://blog.csdn.net/weixin_39648824/article/details/114750529)[](https://www.e-com-net.com/article/1643860215952629760.htm)。 |
+| 配额与配置  | `quota`, `flags`, `versioning`              | 配置桶的容量配额、是否启用版本控制等高级功能。                                                                                                                                                   |
+| 运行时状态  | `objv_tracker`                              | 一个版本追踪器，用于确保分布式环境下的并发操作安全。                                                                                                                                                |
 #### 4.1.3.3 核心元数据  
 
-#### 4.1.3.4 桶索引对象  
 
-#### 4.1.3.5 名称映射 
+#### 4.1.3.4 桶索引
+`rgw_bucket_dir_header` 、 `rgw_bucket_dir` 、 `rgw_bucket_dir_entry`是桶索引相关内容  
+可以将它们理解为一个“账本”系统：
+
+-  `rgw_bucket_dir_header` ：是账本的封面，记录了桶的统计摘要（如对象总数、已用容量）。
+-  `rgw_bucket_dir` ：是**账本本身** ，作为一个容器，包含了Header和所有的账目明细。
+- `rgw_bucket_dir_entry` ：是**账本中的每一笔明细**，记录了桶中单个对象的元数据信息。
+```mermaid
+flowchart TD
+    subgraph A [逻辑结构: rgw_bucket_dir]
+        A1[Header<br>rgw_bucket_dir_header]
+        A2[Entries Map<br>map of rgw_bucket_dir_entry]
+    end
+
+    A2 -- 包含多个 --> B[单个明细: rgw_bucket_dir_entry]
+    
+    subgraph C [物理存储: default.rgw.buckets.index 池]
+        C1[分片1的RADOS对象<br>.dir.marker.0]
+        C2[分片2的RADOS对象<br>.dir.marker.1]
+    end
+
+    A -- 如果桶索引未分片<br>直接存入 --> C1
+    A -- 如果桶索引已分片<br>按Key哈希分散存入 --> C1 & C2
+```
+
+1. **写入流程**：当一个对象被成功上传到 `default.rgw.buckets.data` 池后，RGW会更新桶索引。
+    - 它会找到对象Key所属的索引分片（RADOS对象，通常名为 `.dir.{bucket_marker}.{shard_id}` ）。
+    - 在该RADOS对象的**omap**中，创建一个Key为对象名的键值对，Value就是序列化后的 `rgw_bucket_dir_entry` ，包含了该对象的大小、ETag等信息。
+    - 同时，更新该分片的 `rgw_bucket_dir_header` ，如增加 `num_entries` 和 `total_size` 的值。
+2. **读取流程**：当客户端请求列出桶内对象时（ `ListObjects` ）：
+    - RGW会读取桶索引所有分片的 `rgw_bucket_dir` 。
+    - 对于每个分片，它读取 `rgw_bucket_dir_header` 获取统计摘要，并根据请求的 `prefix` 、 `marker` 等参数，遍历 `rgw_bucket_dir_entry` 的map。
+    - 将这些 `rgw_bucket_dir_entry` 中记录的对象元数据返回给客户端。
+
+
+#### 4.1.3.5 名称映射   
+
 
 ### 4.1.4 扩展属性  
 
@@ -380,6 +556,127 @@ int RGWSI_Bucket_SObj::read_bucket_entrypoint_info(
     - Swift：`X-Object-Meta-*`
     - Bucket tags（`tag1=val1&tag2=val2`
 存储位置（关键）：  
+
+# 5 List buckets-列举桶
+RGWListBuckets_ObjStore_S3
+**核心职责**：返回用户拥有的桶列表，支持分页、前缀过滤等参数
+
+对应操作： python3 /usr/bin/s3cmd ls s3://my-new-bucket
+
+```c++
+class RGWListBuckets_ObjStore_S3 : public RGWListBuckets_ObjStore {
+
+}
+
+class RGWListBuckets_ObjStore : public RGWListBuckets {
+
+}
+
+class RGWListBuckets : public RGWOp {
+public:
+    void pre_exec() override;
+    void execute(optional_yield y) override;
+}
+```
+
+类继承体系：  
+
+```mermaid
+classDiagram
+    class RGWOp {
+        <<abstract>>
+        +verify_permission()
+        +execute()
+        +send_response()
+    }
+    class RGWListBuckets {
+        +verify_permission()
+        +execute()
+    }
+    class RGWListBuckets_ObjStore {
+        <<abstract>>
+    }
+    class RGWListBuckets_ObjStore_S3 {
+        +send_response()
+    }
+
+    RGWOp <|-- RGWListBuckets
+    RGWListBuckets <|-- RGWListBuckets_ObjStore
+    RGWListBuckets_ObjStore <|-- RGWListBuckets_ObjStore_S3
+```
+
+
+
+### 5.1.1 核心执行阶段  
+#### 5.1.1.1 RGWListBucket::execute  
+
+# 6 RGWListBucket-查询桶内容  
+**核心职责**：返回指定桶内的对象列表，支持分页、前缀过滤、版本控制等参数。  
+
+**类继承体系**  
+```mermaid
+classDiagram
+    class RGWOp {
+        <<abstract>>
+        +verify_permission()
+        +execute()
+        +send_response()
+    }
+    class RGWListBucket {
+        +verify_permission()
+        +execute()
+    }
+    class RGWListBucket_ObjStore {
+        <<abstract>>
+    }
+    class RGWListBucket_ObjStore_S3 {
+        +send_response()
+    }
+
+    RGWOp <|-- RGWListBucket
+    RGWListBucket <|-- RGWListBucket_ObjStore
+    RGWListBucket_ObjStore <|-- RGWListBucket_ObjStore_S3
+```
+
+# 7 核心操作对比  
+
+## 7.1 上传、下载、创建桶、查询桶列表和查询桶内容对比
+
+| 维度     | RGWGetObj_ObjStore                | RGWCreateBucket                      | RGWListBuckets           | RGWListBucket                                 |
+| ------ | --------------------------------- | ------------------------------------ | ------------------------ | --------------------------------------------- |
+| 核心操作类型 | 数据读（Data Read）                    | 元数据写（Meta Write）                     | 元数据读（Meta Read）          | 索引读（Index Read）                               |
+| 涉及的存储池 | data + index                      | meta + index                         | meta                     | index                                         |
+| 主要数据结构 | rgw_bucket_dir_entry<br>RADOS对象分片 | RGWBucketEntryPoint<br>RGWBucketInfo | 用户桶列表对象<br>RGWBucketInfo | rgw_bucket_dir_header<br>rgw_bucket_dir_entry |
+| 性能瓶颈   | 磁盘I/O + 网络带宽                      | 元数据池的写入延迟                            | 用户桶列表对象的大小               | 索引分片数量 + 对象数量                                 |
+| 特殊功能   | Range请求、加密解密、压缩解压                 | 桶分片、存储类、对象锁                          | 分页、前缀过滤、缓存               | delimiter目录模拟、版本控制分页                          |
+| 幂等性    | GET 天然幂等                          | 重复创建返回错误                             | 天然幂等                     | GET 天然幂等                                      |
+
+## 7.2 其他操作对比  
+下表对这些操作按功能领域进行了分类和梳理[^9]：  
+
+| 功能领域  | 对应操作                                                                | 核心职责                             | 涉及的关键数据/组件                                          |
+| ----- | ------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------- |
+| 对象操作  | RGWDeleteObj                                                        | 删除对象                             | 桶索引 (Bucket Index), GC (Garbage Collection) 队列[^10] |
+|       | RGWCopyObj                                                          | 在桶内或跨桶复制对象                       | 源/目标对象的元数据和数据                                       |
+| 分段上传  | RGWInitMultipart                                                    | 初始化分段上传，生成 UploadId              | RGWBucketInfo, 上传队列[^11]                            |
+|       | RGWPutObj                                                           | 上传一个分片 (Part)                    | RGWPutObjProcessor_Multipart, 临时存储对象                |
+|       | RGWCompleteMultipart                                                | 组合所有分片，完成上传                      | 对象清单 (manifest), 最终对象元数据                            |
+|       | RGWAbortMultipart                                                   | 取消上传，清理已上传的分片                    | GC 队列                                               |
+|       | RGWListMultipart                                                    | 列出一个正在进行中的上传任务的分片信息              | 上传任务的元数据对象                                          |
+|       | RGWListBucketMultiparts                                             | 列出一个桶中所有正在进行中的上传任务               | 桶索引的 omap                                           |
+| 桶管理   | RGWDeleteBucket                                                     | 删除一个空桶                           | RGWBucketEntryPoint, RGWBucketInfo                  |
+|       | RGWStatBucket                                                       | 获取桶的元数据信息（如大小、对象数）               | RGWBucketInfo, 桶索引头                                 |
+|       | RGWGetBucketLogging / RGWSetBucketLogging                           | 获取/设置桶的日志记录配置                    | 桶属性 (xattrs)                                        |
+|       | RGWGetBucketVersioning / RGWSetBucketVersioning                     | 获取/设置桶的版本控制状态                    | RGWBucketInfo                                       |
+| 策略与权限 | RGWGetACLs / RGWPutACLs                                             | 获取/设置桶或对象的访问控制列表 (ACL)           | 对象的 RGW_ATTR_ACL 属性                                 |
+|       | RGWGetCORS / RGWPutCORS / RGWDeleteCORS                             | 获取/设置/删除桶的跨域资源共享 (CORS) 配置       | 桶的 RGW_ATTR_CORS 属性                                 |
+|       | RGWGetRequestPayment / RGWSetRequestPayment                         | 获取/设置请求者付款功能                     | 桶属性                                                 |
+| 元数据管理 | RGWPutMetadataAccount / RGWPutMetadataBucket / RGWPutMetadataObject | 更新账户、桶、对象的元数据                    | 账户/桶/对象的 xattrs                                     |
+| 其他    | RGWOptionsCORS                                                      | 处理 CORS 预检请求 (Preflight Request) | CORS 配置                                             |
+|       | RGWDeleteMultiObj                                                   | 批量删除对象                           | 桶索引, GC 队列                                          |
+|       | RGWSetTempURL                                                       | 为 Swift 接口设置临时 URL 密钥            | 账户的元数据                                              |
+|       | RGWStatAccount                                                      | 获取账户的元数据信息（如桶个数、用量）              | 用户元数据对象                                             |
+
 
 
 
@@ -406,6 +703,14 @@ int RGWSI_Bucket_SObj::read_bucket_entrypoint_info(
     | 调试难度      | 简单                  | 中等                     |
     | 开发活跃度     | 低（仅维护）              | 高（主推）                  |
 
-​   
+[^3]: https://cephdocs.readthedocs.io/en/latest/dev/radosgw/bucket_index/
+[^4]: https://cephdocs.readthedocs.io/en/latest/dev/radosgw/bucket_index/
+[^5]: https://www.programmersought.com/article/37449037100/
+[^6]: https://deepwiki.com/ceph/ceph/4-client-interfaces
+[^7]: https://deepwiki.com/ceph/ceph/4-client-interfaces
+[^8]: 参阅：[桶(Bucket)简要介绍](../基本概念/桶(Bucket)简要介绍.md)
+[^9]: https://deepwiki.com/ceph/ceph/4.1-rados-gateway-(rgw)
 
-[^3]: 参阅：[对象桶简要介绍](../基本概念/对象桶简要介绍.md)
+[^10]: https://cloud.tencent.cn/developer/article/1032873?from=15425
+
+[^11]: https://blog.csdn.net/weixin_34270606/article/details/92578903  

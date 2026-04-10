@@ -3,7 +3,7 @@
 - **Tenant（租户）**：多租户隔离，`tenant$user` 形式
 - **User（用户）**：身份实体，拥有 AK/SK
 - **Subuser（子用户）**：用于 Swift 子账户 / 权限细分
-- [Bucket（桶）](对象桶简要介绍.md)：命名空间、容器、权限边界
+- [Bucket（桶）](桶(Bucket)简要介绍.md)：命名空间、容器、权限边界
 - **Object（对象）**：数据主体，key-value + metadata
 - **Bucket Index（桶索引）**：对象列表 / 元数据索引（OMAP）
 

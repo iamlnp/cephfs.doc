@@ -56,7 +56,7 @@ RGWUser::add()
 ```
 
 备注：下列是 rgw_use.cc 中的 op 支持情况  
-![|325](assets/2026-03-29--IMG.png)   
+![|255](assets/2026-03-29--IMG.png)   
 
 
 

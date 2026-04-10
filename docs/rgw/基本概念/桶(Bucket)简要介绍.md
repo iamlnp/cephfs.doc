@@ -29,6 +29,7 @@ bucket_tenant和bucket_name一起组成全局唯一的桶全名
 | MotrBucket  | radosgw-admin + Motr 集群      | Seagate Motr 分布式对象        | Motr 对象接口        | ✅ 部分  | 高性能、低时延、海量对象    |
 | DaosBucket  | radosgw-admin + DAOS 集群      | DAOS 分布式对象存储              | DAOS KV / 对象     | ✅ 部分  | 高性能计算（HPC）、AI   |
 | DBBucket    | radosgw-admin --bucket-attrs | RocksDB/LevelDB（元数据 + 数据） | KV 数据库语义         | ❌ 有限  | 元数据密集、小对象、强事务   |
+
 ## 1.1 详细介绍
 ### 1.1.1 RadosBucket（标准桶 / StoreBucket）  
 1. 创建
