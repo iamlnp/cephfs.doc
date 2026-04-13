@@ -1,4 +1,8 @@
-安装 s3cmd  
+`s3cmd` 是一款流行的命令行工具，用于与 S3 兼容的对象存储（包括 Ceph RGW）进行交互。  
+要让 `s3cmd` 连接到你的 Ceph RGW，需要正确配置 `~/.s3cfg` 文件。RGW 的 S3 接口通常默认监听 7480 端口。  
+`s3cmd` 执行的是标准的 S3 API 操作，主要用于数据面的存取。  
+`radosgw-admin` 执行的是管理员操作，主要用于元数据查看和系统配置。   
+**安装 s3cmd**  ：
 ```bash
 yum -y install s3cmd
 
@@ -63,6 +67,10 @@ Bucket 's3://my-new-bucket/' created
 ```bash
 [root@node1 ~]# python3 /usr/bin/s3cmd ls s3://my-new-bucket
 2026-03-31 06:54     18933476  s3://my-new-bucket/ceph.client.log
+
+# 递归列出所有对象
+[root@ceph-221 /]# s3cmd ls --recursive s3://my-new-bucket/
+2026-04-07 12:33            6  s3://my-new-bucket/radosgw.8000.pid
 ```
 
 3. 查询桶的详细信息
@@ -83,6 +91,9 @@ s3://my-new-bucket/ (bucket):
 [root@node1 rpm]# radosgw-admin bucket rm --bucket=my-new-bucket
 2026-03-31T15:12:18.880+0800 7f9910d20a80 -1 bucket.cc. rgw_remove_bucket: 376 ERROR: could not remove non-empty bucket my-new-bucket
 2026-03-31T15:12:18.881+0800 7f9910d20a80 -1 bucket.cc. remove_bucket: 1435 ERROR: unable to remove bucket(39) Directory not empty
+
+[root@ceph-221 /]# s3cmd rb s3://my-new-bucket
+ERROR: S3 error: 409 (BucketNotEmpty)
 ```
 2. 删除带数据的桶
 ```bash
@@ -216,6 +227,23 @@ upload: '/home/rpm/ceph-radosgw-obs-bvt-3.23.3.2-1.el8.x86_64.rpm' -> 's3://my-n
 结果（保持了目录结构）
 ![|525](assets/2026-03-31--IMG-1.png)  
 
+4. 同步本地目录到远端
+```bash
+[root@ceph-221 home]# s3cmd sync /home/liunp_test/ s3://my-new-bucket
+upload: '/home/liunp_test/new_file' -> 's3://my-new-bucket/new_file'  [1 of 1]
+ 0 of 0     0% in    0s     0.00 B/s  done
+```
+
+### 2.1.1 put和sync的区别  
+| 特性   | s3cmd put                                | s3cmd sync                                                                     |
+| ---- | ---------------------------------------- | ------------------------------------------------------------------------------ |
+| 核心功能 | 上传一个或多个文件到 S3                            | 同步目录（本地 → S3 或 S3 → 本地）                                                        |
+| 工作方式 | 每次执行都会上传你指定的文件                           | 比较源和目标的差异，仅上传有变化的部分（默认比较大小和 MD5）                                               |
+| 增量上传 | ❌ 不支持，每次都全量上传                            | ✅ 支持，只上传新增或修改过的文件                                                              |
+| 删除文件 | ❌ 不会删除远端多余的文件                            | ✅ 配合 --delete-removed 可以使远端与本地完全一致                                             |
+| 适用场景 | 一次性上传几个文件、替换单个文件                         | 定期备份、镜像网站、保持两地数据一致                                                             |
+| 常用参数 | --recursive（上传目录）<br>--acl-public（设置公开读） | --dry-run（演练，不实际执行）<br>--delete-removed（删除远端多余文件）<br>--exclude/--include（过滤文件） |
+
 ## 2.2 下载命令  
 1. 下载单个文件
 ```bash
@@ -231,6 +259,79 @@ python3 /usr/bin/s3cmd get --recursive s3://my-new-bucket/leveldb new_leveldb
 ```
 注意：需要目标文件夹存在
 ![|500](assets/2026-03-31--IMG-3.png)   
+
+3. 同步远程目录到本地
+```bash
+[root@ceph-221 home]# s3cmd sync s3://my-new-bucket/ /home/liunp_test/
+download: 's3://my-new-bucket/btmp' -> '/home/liunp_test/btmp'  [1 of 11]
+ 0 of 0     0% in    0s     0.00 B/s  done
+download: 's3://my-new-bucket/ceph/cephadm.log' -> '/home/liunp_test/ceph/cephadm.log'  [2 of 11]
+ 894 of 894   100% in    0s    20.25 KB/s  done
+download: 's3://my-new-bucket/dnf.librepo.log' -> '/home/liunp_test/dnf.librepo.log'  [3 of 11]
+ 314258 of 314258   100% in    0s    52.56 MB/s  done
+download: 's3://my-new-bucket/dnf.log' -> '/home/liunp_test/dnf.log'  [4 of 11]
+ 821192 of 821192   100% in    0s    17.59 MB/s  done
+download: 's3://my-new-bucket/dnf.rpm.log' -> '/home/liunp_test/dnf.rpm.log'  [5 of 11]
+ 100761 of 100761   100% in    0s     2.21 MB/s  done
+download: 's3://my-new-bucket/hawkey.log' -> '/home/liunp_test/hawkey.log'  [6 of 11]
+ 6000 of 6000   100% in    0s   137.72 KB/s  done
+download: 's3://my-new-bucket/journal/b341a467100644e7b8674151ff031595/system.journal' -> '/home/liunp_test/journal/b341a467100644e7b8674151ff031595/system.journal'  [7 of 11]
+ 8388608 of 8388608   100% in    0s   195.04 MB/s  done
+download: 's3://my-new-bucket/lastlog' -> '/home/liunp_test/lastlog'  [8 of 11]
+ 291708 of 291708   100% in    0s    62.36 MB/s  done
+download: 's3://my-new-bucket/radosgw.8000.pid' -> '/home/liunp_test/radosgw.8000.pid'  [9 of 11]
+ 6 of 6   100% in    0s   132.74 B/s  done
+download: 's3://my-new-bucket/tallylog' -> '/home/liunp_test/tallylog'  [10 of 11]
+ 0 of 0     0% in    0s     0.00 B/s  done
+download: 's3://my-new-bucket/wtmp' -> '/home/liunp_test/wtmp'  [11 of 11]
+
+[root@ceph-221 home]# s3cmd ls --recursive s3://my-new-bucket/
+2026-04-10 08:00            0  s3://my-new-bucket/btmp
+2026-04-10 08:00          894  s3://my-new-bucket/ceph/cephadm.log
+2026-04-10 07:59          894  s3://my-new-bucket/cephadm.log
+2026-04-10 08:00       314258  s3://my-new-bucket/dnf.librepo.log
+2026-04-10 08:00       821192  s3://my-new-bucket/dnf.log
+2026-04-10 08:00       100761  s3://my-new-bucket/dnf.rpm.log
+2026-04-10 08:00         6000  s3://my-new-bucket/hawkey.log
+2026-04-10 08:00      8388608  s3://my-new-bucket/journal/b341a467100644e7b8674151ff031595/system.journal
+2026-04-10 08:00       291708  s3://my-new-bucket/lastlog
+2026-04-07 12:33            6  s3://my-new-bucket/radosgw.8000.pid
+2026-04-10 08:00            0  s3://my-new-bucket/tallylog
+2026-04-10 08:00         2304  s3://my-new-bucket/wtmp
+
+[root@ceph-221 home]# tree /home/liunp_test/
+/home/liunp_test/
+├── btmp
+├── ceph
+│   └── cephadm.log
+├── cephadm.log
+├── dnf.librepo.log
+├── dnf.log
+├── dnf.rpm.log
+├── hawkey.log
+├── journal
+│   └── b341a467100644e7b8674151ff031595
+│       └── system.journal
+├── lastlog
+├── radosgw.8000.pid
+├── tallylog
+└── wtmp
+```
+
+### 2.2.1 get和sync的区别  
+`s3cmd get` 和 `s3cmd sync` 的核心区别在于：**`get` 是一个简单的“下载”命令，而 `sync` 是一个智能的“同步”命令。**
+
+| 特性   | s3cmd get                                          | s3cmd sync                                                   |
+| ---- | -------------------------------------------------- | ------------------------------------------------------------ |
+| 核心功能 | 下载一个或多个文件                                          | 同步两个目录（本地↔️ S3 或 S3 ↔️ S3）                                   |
+| 工作方式 | 每次执行都会下载你指定的文件                                     | 比较源和目标的差异，仅传输有变化的部分                                          |
+| 增量支持 | 不支持。每次都会下载，除非你手动加上 --skip-existing 或 --continue 参数 | 支持。这是它的核心特性，默认只同步新增或修改过的文件                                   |
+| 删除文件 | 不会删除本地已有但远端不存在的文件                                  | 配合 --delete-removed 参数，可以使目标目录与源目录完全一致（包括删除操作）               |
+| 适用场景 | 一次性下载单个或几个文件；恢复单个备份文件                              | 做定期备份、镜像网站、两地数据保持一致                                          |
+| 常用选项 | --recursive（递归下载目录）<br>--force（覆盖已有文件）             | --dry-run（演练，显示会执行的操作但不实际执行）<br>--delete-removed（删除目标中多余的文件） |
+
+
+
 ## 2.3 删除命令  
 1. 删除单个文件
 ```bash
@@ -273,3 +374,193 @@ delete: 's3://my-new-bucket/systemd-pam-239-51.el8.x86_64.rpm'
 delete: 's3://my-new-bucket/systemd-udev-239-51.el8.x86_64.rpm'
 [root@node1 rpm]# python3 /usr/bin/s3cmd ls s3://my-new-bucket
 ```
+
+
+# 3 ACL和策略    
+注意： 执行命令的 IAM 用户/角色需要具有 `s3:PutObjectAcl` 权限
+1. 设置对象公开读/私有
+```bash
+[root@ceph-221 home]# s3cmd setacl --acl-public s3://my-new-bucket/tallylog
+s3://my-new-bucket/tallylog: ACL set to Public  [1 of 1]
+
+[root@ceph-221 home]# s3cmd setacl --acl-private s3://my-new-bucket/tallylog
+s3://my-new-bucket/tallylog: ACL set to Private  [1 of 1]
+```
+2. 设置整个目录为公共读/私有
+```bash
+# TODO: 确认目录带与不带最后的反斜杠是否有区别
+s3cmd setacl --acl-private --recursive s3://my-new-bucket/ceph/
+s3cmd setacl --acl-public --recursive s3://my-new-bucket/ceph/
+```
+
+3. 设置多个对象
+```bash
+[root@ceph-221 home]# s3cmd setacl --acl-public s3://my-new-bucket/tallylog s3://my-new-bucket/hawkey.log
+s3://my-new-bucket/hawkey.log: ACL set to Public  [1 of 2]
+s3://my-new-bucket/tallylog: ACL set to Public  [2 of 2]
+```
+
+4. 查询当前的ACL设置    
+输出中会包含类似 `ACL:` 的信息，显示权限详情。
+```bash
+[root@ceph-221 home]# s3cmd info s3://my-new-bucket/
+s3://my-new-bucket/ (bucket):
+   Location:  default
+   Payer:     BucketOwner
+   Ownership: none
+   Versioning:none
+   Expiration rule: none
+   Block Public Access: none
+   Policy:    none
+   CORS:      none
+   ACL:       M. Tester: FULL_CONTROL
+```
+5. 管理访问策略
+```bash
+# 配置访问策略
+s3cmd setpolicy policy.json s3://my-new-bucket
+# 删除访问策略
+s3cmd delpolicy policy.json s3://my-new-bucket
+```
+
+## 3.1 Bucket Policy vs ACL  
+| 对比项     | setpolicy (Bucket Policy) | setacl (ACL)     |
+|---------|---------------------------|------------------|
+| 作用范围    | 整个 Bucket 或特定路径           | 单个对象或 Bucket     |
+| 精细度     | ✅ 支持条件（IP、时间、HTTPS 等）     | ❌ 仅支持简单的 "公共读/写" |
+| 跨账号授权   | ✅ 可以授权其他 AWS 账号           | ❌ 不支持            |
+| JSON 格式 | 需要编写 JSON 策略              | 命令行参数即可          |
+| 适用场景    | 复杂权限、条件控制、静态网站            | 快速设置单个文件的公开/私有   |
+# 4 生命周期[^1]  
+[lifecycle.xml文件举例](assets/lifecycle.xml文件举例.md)  
+1. 设置生命周期规则，**设置**或**替换**存储桶的生命周期配置。  
+**注意**：此操作会完全覆盖桶上已有的策略，并非合并
+```bash
+[root@ceph-221 liunp_test]# s3cmd setlifecycle lifecycle.xml s3://my-new-bucket
+s3://my-new-bucket/: Lifecycle Policy updated
+```
+2. 查询规则是否生效
+```bash
+[root@ceph-221 /]# s3cmd getlifecycle s3://my-new-bucket
+<?xml version="1.0" ?>
+<LifecycleConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+    <Rule>
+        <ID>abort-incomplete-multipart-upload</ID>
+        <Prefix/>
+        <Status>Enabled</Status>
+        <AbortIncompleteMultipartUpload>
+            <DaysAfterInitiation>7</DaysAfterInitiation>
+        </AbortIncompleteMultipartUpload>
+    </Rule>
+    <Rule>
+        <ID>cleanup-old-versions</ID>
+        <Prefix/>
+        <Status>Enabled</Status>
+        <NoncurrentVersionExpiration>
+            <NoncurrentDays>30</NoncurrentDays>
+        </NoncurrentVersionExpiration>
+    </Rule>
+    <Rule>
+        <ID>delete-temp-logs-after-7-days</ID>
+        <Prefix>logs/</Prefix>
+        <Status>Enabled</Status>
+        <Expiration>
+            <Days>7</Days>
+        </Expiration>
+    </Rule>
+    <Rule>
+        <ID>transition-to-cold-after-30-days</ID>
+        <Prefix/>
+        <Status>Enabled</Status>
+        <Transition>
+            <Days>30</Days>
+            <StorageClass>COLD</StorageClass>
+        </Transition>
+    </Rule>
+</LifecycleConfiguration>
+```
+
+3. 删除存储桶的生命周期
+```bash
+[root@ceph-221 /]# s3cmd dellifecycle s3://my-new-bucket
+s3://my-new-bucket/: Lifecycle Policy deleted
+```
+4. 快速设置“全桶过期”规则
+这是一个**简化命令**，用于快速设置“全桶过期”规则。它让你无需手动编写 XML 文件，就能一键删除桶内所有对象
+```bash
+[root@ceph-221 /]# s3cmd expire --expiry-days 30 s3://my-new-bucket
+Bucket 's3://my-new-bucket/': expiration configuration is set.
+```
+
+如果要删除可以使用 `s3cmd dellifecycle xxx`  
+
+# 5 版本控制[^2]  
+1. 开启桶的版本控制
+```bash
+[root@ceph-221 /]# s3cmd setversioning s3://my-new-bucket enable
+s3://my-new-bucket/: Versioning status updated
+```
+2. 查询版本控制状态
+```bash
+[root@ceph-221 /]# s3cmd info s3://my-new-bucket
+s3://my-new-bucket/ (bucket):
+   Location:  default
+   Payer:     BucketOwner
+   Ownership: none
+   Versioning:Enabled
+   Expiration Rule: all objects in this bucket will expire in '30' day(s) after creation
+   Block Public Access: none
+   Policy:    none
+   CORS:      none
+   ACL:       M. Tester: FULL_CONTROL
+```
+
+如何  
+1. 列出特定文件的的所有版本
+2. 列出特定桶的所有版本
+3. 下载特定版本的对象
+4. 删除特定版本的对象
+5. 恢复历史版本
+
+# 6 标签[^3]  
+1. 设置单个标签
+```bash
+[root@ceph-221 /]# s3cmd settagging s3://my-new-bucket/dnf.log "log=dnf"
+s3://my-new-bucket/dnf.log: Tagging updated
+```
+
+2. 设置多个标签
+```bash
+[root@ceph-221 /]# s3cmd settagging s3://my-new-bucket/dnf.log "log=dnf&owner=liunp"
+s3://my-new-bucket/dnf.log: Tagging updated
+```
+3. 为整个目录递归设置标签
+```bash
+[root@ceph-221 /]# s3cmd settagging --recursive s3://my-new-bucket "log=dnf&owner=liunp"
+s3://my-new-bucket/: Tagging updated
+```
+4. 获取标签
+```bash
+[root@ceph-221 /]# s3cmd gettagging s3://my-new-bucket/dnf.log
+s3://my-new-bucket/dnf.log (object):
+    log:    dnf
+    owner:    liunp
+```
+5. 删除对象的标签
+```bash
+[root@ceph-221 /]# s3cmd deltagging s3://my-new-bucket/dnf.log
+s3://my-new-bucket/dnf.log: Tagging deleted
+```
+
+
+# 7 预签名URL  
+
+# 8 分段上传  
+
+
+
+[^1]: [桶生命周期](../特性/桶生命周期.md)
+
+[^2]: [版本控制](../特性/版本控制.md)
+
+[^3]: [对象标签功能](../特性/对象标签功能.md)
