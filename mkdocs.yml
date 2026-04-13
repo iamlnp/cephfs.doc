@@ -33,6 +33,8 @@ theme:
     text: Noto Sans SC    # 正文字体（思源黑体，支持中文）
     code: JetBrains Mono  # 代码字体（JetBrains Mono，支持代码块）
 
+exclude_docs:
+  - assets/
 
 plugins:
   - search

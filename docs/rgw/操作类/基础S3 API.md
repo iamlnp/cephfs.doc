@@ -553,14 +553,64 @@ s3://my-new-bucket/dnf.log: Tagging deleted
 ```
 
 
-# 7 预签名URL  
 
-# 8 分段上传  
+# 7 预签名URL[^4]
+1. 生成临时下载链接分享给其他人
+```bash
+# 生成一个1小时有效的下载链接
+[root@ceph-221 /]# s3cmd signurl s3://my-new-bucket/cephadm.log +3600
+http://10.131.1.221:8000/my-new-bucket/cephadm.log?AWSAccessKeyId=0555b35654ad1656d804&Expires=1776050772&Signature=5Oze3BdBn%2BCFbi%2FeBiEDNgiXY%2BU%3D
+```
 
+2. 生成链接用于脚本或程序下载
+```bash
+# 获取 URL 并直接使用 curl 下载
+URL=$(s3cmd signurl s3://my-new-bucket/cephadm.log +3600)
+curl -o cephadm.log "$URL"
+```
 
+# 8 分段上传[^5]  
+1. 自动分段上传    
+这是最常用的方式，只需正常使用 `put` 命令上传大文件即可。系统会自动按照默认的 15MB 分块大小进行分段上传。  
+```bash
+s3cmd put ./large-file.zip s3://my-new-bucket/
+```
+
+2. 自定义分块大小
+```bash
+# 使用 --multipart-chunk-size-mb 参数来指定分块大小
+[root@ceph-221 /]# s3cmd put --multipart-chunk-size-mb=500 cephadm.log s3://my-new-bucket/new_cephadm.log
+upload: 'cephadm.log' -> 's3://my-new-bucket/new_cephadm.log'  [1 of 1]
+ 894 of 894   100% in    0s    23.16 KB/s  done
+```
+
+3. 断点续传
+```bash
+# 第一次上传中断后，再次执行相同命令并加上 --continue-put
+[root@ceph-221 /]# s3cmd put --continue-put cephadm.log s3://my-new-bucket/new_cephadm.log
+WARNING: Put: size and md5sum match for s3://my-new-bucket/new_cephadm.log, skipping.
+```
+
+4. 上传整个目录并加密
+```bash
+s3cmd put --recursive --multipart-chunk-size-mb=5120 --encrypt --continue-put /local-folder/ s3://my-bucket/
+```
+
+5. 管理分段上传任务    
+除了上传，还可以使用以下命令来管理桶中的分段上传任务，这对于清理因中断而残留的“碎片”文件尤为重要。  
+```bash
+# 列出所有未完成的分段上传任务
+[root@ceph-221 /]# s3cmd multipart s3://my-new-bucket/
+s3://my-new-bucket/
+Initiated    Path    Id
+
+# 中止并清除一个未完成的分段上传[^6]
+s3cmd abortmp s3://my-bucket/large-file.zip <Upload-ID>
+```
 
 [^1]: [桶生命周期](../特性/桶生命周期.md)
-
 [^2]: [版本控制](../特性/版本控制.md)
-
 [^3]: [对象标签功能](../特性/对象标签功能.md)
+[^4]: [预签名URL](../特性/预签名URL.md)
+[^5]: [分段上传](../特性/分段上传.md)
+[^6]: https://hostman.com/docs/s3/tools/s3cmd/#managing-interrupted-multipart-uploads

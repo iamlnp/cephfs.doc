@@ -75,15 +75,15 @@ radosgw-admin zone delete --zone=zone名
 ```
 # 3 桶管理
 
-| 操作 | 命令示例 | 说明 |
-|------|----------|------|
-| **列出用户的所有桶** | `radosgw-admin bucket list --uid=johndoe` | 返回桶名列表 |
-| **查看桶详情** | `radosgw-admin bucket stats --bucket=mybucket` | 显示桶大小、对象数、所有者等信息 |
-| **调整桶索引分片** | `radosgw-admin bucket reshard --bucket=mybucket --num-shards=16` | 当单个桶对象数超过 10 万时，分片可提升性能 |
-| **删除空桶** | `radosgw-admin bucket rm --bucket=mybucket` | 仅删除空桶 |
-| **强制删除桶及内容** | `radosgw-admin bucket rm --bucket=mybucket --purge-objects` | 递归删除桶内所有对象 |
-| **将桶关联给其他用户** | `radosgw-admin bucket link --bucket=mybucket --uid=otheruser` | 不改变所有权，仅关联 |
-| **更改桶所有权** | `radosgw-admin bucket chown --bucket=mybucket --uid=otheruser` | 彻底转移桶所有权 |
+| 操作            | 命令示例                                                             | 说明                      |
+| ------------- | ---------------------------------------------------------------- | ----------------------- |
+| **列出用户的所有桶**  | `radosgw-admin bucket list --uid=johndoe`                        | 返回桶名列表                  |
+| **查看桶详情**     | `radosgw-admin bucket stats --bucket=mybucket`                   | 显示桶大小、对象数、所有者等信息        |
+| **调整桶索引分片**   | `radosgw-admin bucket reshard --bucket=mybucket --num-shards=16` | 当单个桶对象数超过 10 万时，分片可提升性能 |
+| **删除空桶**      | `radosgw-admin bucket rm --bucket=mybucket`                      | 仅删除空桶                   |
+| **强制删除桶及内容**  | `radosgw-admin bucket rm --bucket=mybucket --purge-objects`      | 递归删除桶内所有对象              |
+| **将桶关联给其他用户** | `radosgw-admin bucket link --bucket=mybucket --uid=otheruser`    | 不改变所有权，仅关联              |
+| **更改桶所有权**    | `radosgw-admin bucket chown --bucket=mybucket --uid=otheruser`   | 彻底转移桶所有权                |
 
 ## 3.1 创建桶 
  1. **桶的所有者用户必须先存在**。如果用户不存在，需要先创建
