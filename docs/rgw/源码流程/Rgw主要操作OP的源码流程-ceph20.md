@@ -93,8 +93,12 @@ public:
     }
 }
 
-int process_request()
-    -> RGWHandler_REST *handler = rest->get_handler() //根据请求方法（PUT）、URL（bucket/object）匹配 S3 处理器
+int process_request() //rgw_process.cc
+       /* 根据请求方法（PUT）、URL（bucket/object）匹配 S3 处理器，在RGWRESTMgr_S3::get_handler()或者
+       RGWRESTMgr_SWIFT::get_handler()等返回不同类型的handler
+       TDOD: RGWHandler_REST的初始位置待确认
+       **/
+    -> RGWHandler_REST *handler = rest->get_handler() 
         -> preprocess()
     -> op = handler->get_op(); // 获取实例化操作类，比如RGWPutObj/RGWGetObj
     -> rgw::lua::request::execute()
@@ -102,7 +106,44 @@ int process_request()
     -> rgw_process_authenticated() //认证完成后的op执行流程
     -> （RGWRestfulIO)client_io->complete_request() //完成请求
 ```
-
+#### 1.1.3.1 RGWHandler_REST::get_op  
+路由分发的主体函数之一，根据op类型，生成不同的RGWOp  
+```c++
+RGWOp* RGWHandler_REST::get_op(void)
+{
+    RGWOp *op;
+    switch (s->op) {
+        case OP_GET:
+            op = op_get();
+            break;
+        case OP_PUT:
+            op = op_put();
+            break;
+        case OP_DELETE:
+            op = op_delete();
+            break;
+        case OP_HEAD:
+            op = op_head();
+            break;
+        case OP_POST:
+            op = op_post();
+            break;
+        case OP_COPY:
+            op = op_copy();
+            break;
+        case OP_OPTIONS:
+            op = op_options();
+            break;
+        default:
+            return NULL;
+        }
+    
+    if (op) {
+        op->init(driver, s, this);
+    }
+    return op;
+}
+```
 
 ### 1.1.4 执行流程  
 ```c++
