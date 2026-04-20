@@ -100,6 +100,9 @@ int process_request() //rgw_process.cc
        **/
     -> RGWHandler_REST *handler = rest->get_handler() 
         -> preprocess()
+        -> RGWRESTMgr *m = mgr.get_manager() //基于frontend_prefix、decoded_uri和relative_uri获取RGWRESTMgr
+        -> RGWHandler_REST* handler = m->get_handler(driver, s, auth_registry, frontend_prefix);
+        -> handler->init()
     -> op = handler->get_op(); // 获取实例化操作类，比如RGWPutObj/RGWGetObj
     -> rgw::lua::request::execute()
     -> op->verify_requester(); //认证
@@ -167,46 +170,7 @@ rgw_process_authenticated() //认证完成后的op执行流程
 
 # 2 [Put上传流程](Put上传流程.md)  
 
-# 3 Get流程  
-## 3.1 类继承体系与核心职责  
-
-**核心职责**：将RADOS中存储的对象数据，通过HTTP响应流式返回给客户端。  
-```mermaid
-classDiagram
-    class RGWOp {
-        <<abstract>>
-        +verify_permission()
-        +execute()
-        +send_response()
-    }
-    class RGWGetObj {
-        +verify_permission()
-        +execute()
-    }
-    class RGWGetObj_ObjStore {
-        <<abstract>>
-        +get_data()
-        #filter_ctx
-    }
-    class RGWGetObj_ObjStore_S3 {
-        +send_response()
-        +get_params()
-    }
-    class RGWGetObj_ObjStore_Swift {
-        +send_response()
-        +get_params()
-    }
-
-    RGWOp <|-- RGWGetObj
-    RGWGetObj <|-- RGWGetObj_ObjStore
-    RGWGetObj_ObjStore <|-- RGWGetObj_ObjStore_S3
-    RGWGetObj_ObjStore <|-- RGWGetObj_ObjStore_Swift
-```
-
-## 3.2 关键处理流程  
-
-![420](assets/Rgw主要操作OP的源码流程-ceph20/deepseek_mermaid_20260410_c20326.svg)
-
+# 3 [Get下载流程](Get下载流程.md)
 
 # 4 创建Bucket流程  
 用 S3 命令（s3cmd /awscli/boto3 等）创建的是 RadosBucket（标准对象存储桶）[^8]
@@ -274,8 +238,6 @@ classDiagram
     RGWCreateBucket <|-- RGWCreateBucket_ObjStore
     RGWCreateBucket_ObjStore <|-- RGWCreateBucket_ObjStore_S3
 ```
-
-
 
 ## 4.1 创建整体简要流程  
 ### 4.1.1 API 入口与权限校验

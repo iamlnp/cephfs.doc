@@ -201,9 +201,9 @@ AppendObjectProcessor
 2. 获取head_chunk_size和pool对齐size(即alignment)， 其中head_chunk_size来源于 `cct->_conf->rgw_max_chunk_size`
 3. 获取stripe_size，来源于 `_conf->rgw_obj_stripe_size`
 4. 初始化管道结构，初始化ChunkProcessor chunk、StripeProcessor stripe，设置RadosWriter writer参数，管道处理顺序如下：
-    - StripeProcessor stripe
-    - ChunkProcessor chunk
-    - RadosWriter writer
+    - `StripeProcessor stripe`
+    - `ChunkProcessor chunk`
+    - `RadosWriter writer`
 
 概念解释：  
 1. head_chunk_size指的是对象“首块”（Head Object）的大小，它的大小由配置参数 `rgw_max_chunk_size` 决定，默认值为 4 MiB。  
@@ -267,10 +267,8 @@ C --> |否|Y
 
 ##### 3.1.2.4.2 分段上传  
 MultipartObjectProcessor  
-
 ##### 3.1.2.4.3 append追加上传
 AppendObjectProcessor
-
 
 #### 3.1.2.5 处理元数据  
 
