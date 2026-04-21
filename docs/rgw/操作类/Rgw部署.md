@@ -1,12 +1,12 @@
 # 启动流程  
 1. 创建存储池
 ```bash
-*.tos.log
-*.tos.meta
-*.tos.control
-*.tos.non-ec
-*.tos.otp
-.tos.root
+*.rgw.log
+*.rgw.meta
+*.rgw.control
+*.rgw.non-ec
+*.rgw.otp
+.rgw.root
 ```
 2. 创建网关
 创建时需要指定 http 和 https 的端口号
@@ -34,24 +34,24 @@
  [root@node2 ~]# onnode all ps -axu | grep /usr/bin/radosgw
 
 >> NODE: 192.168.124.1 
-ceph     1686311  1.3  0.0 5387904 111656 ?      Ssl  15:21   0:01 /usr/bin/radosgw -f --cluster ceph --name client.rgw.tosa --setuser ceph --setgroup ceph
+ceph     1686311  1.3  0.0 5387904 111656 ?      Ssl  15:21   0:01 /usr/bin/radosgw -f --cluster ceph --name client.rgw.a --setuser ceph --setgroup ceph
 >> NODE: 192.168.124.2 
-ceph     3044787  1.4  0.0 5387908 110868 ?      Ssl  15:22   0:00 /usr/bin/radosgw -f --cluster ceph --name client.rgw.tosb --setuser ceph --setgroup ceph
+ceph     3044787  1.4  0.0 5387908 110868 ?      Ssl  15:22   0:00 /usr/bin/radosgw -f --cluster ceph --name client.rgw.b --setuser ceph --setgroup ceph
 >> NODE: 192.168.124.3 
 
 # 查询网关服务状态
-[root@node2 ~]# systemctl status ceph-radosgw@rgw.tosb
-● ceph-radosgw@rgw.tosb.service - Ceph rados gateway
+[root@node2 ~]# systemctl status ceph-radosgw@rgw.b
+● ceph-radosgw@rgw.b.service - Ceph rados gateway
    Loaded: loaded (/usr/lib/systemd/system/ceph-radosgw@.service; enabled; vendor preset: disabled)
    Active: active (running) since Fri 2026-03-27 15:22:27 CST; 4min 10s ago
  Main PID: 3044787 (radosgw)
     Tasks: 609
    Memory: 85.3M
    CGroup: /system.slice/system-ceph\x2dradosgw.slice/ceph-radosgw@rgw.tosb.service
-           └─3044787 /usr/bin/radosgw -f --cluster ceph --name client.rgw.tosb --setuser ceph --setgroup ceph
+           └─3044787 /usr/bin/radosgw -f --cluster ceph --name client.rgw.b --setuser ceph --setgroup ceph
 
 Mar 27 15:22:27 node2 systemd[1]: Started Ceph rados gateway.
-Mar 27 15:22:27 node2 radosgw[3044787]: 2026-03-27T15:22:27.936+0800 7fdc9f5ada80 -1 ssl_private_key was not found: rgw/cert/magnascale_realm/magnascale.key
+Mar 27 15:22:27 node2 radosgw[3044787]: 2026-03-27T15:22:27.936+0800 7fdc9f5ada80 -1 ssl_private_key was not found: rgw/cert/rgw-scale_realm/rgw-scale.key
     
 ```
 3. 创建路由

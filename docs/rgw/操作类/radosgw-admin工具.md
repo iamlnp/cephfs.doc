@@ -34,9 +34,9 @@ radosgw-admin key create --subuser=johndoe:swift --key-type=swift --gen-secret
 [root@node1 ~]# radosgw-admin zone get
 {
     "id": "03b4c78e-c70f-4ad7-b229-608bff012f1b",
-    "name": "magnascale",
-    "domain_root": "magnascale.tos.meta:root",
-    "control_pool": "magnascale.tos.control",
+    "name": "rgw-scale",
+    "domain_root": "rgw-scale.tos.meta:root",
+    "control_pool": "rgw-scale.tos.control",
     ...
 }
 ```
@@ -47,7 +47,7 @@ radosgw-admin key create --subuser=johndoe:swift --key-type=swift --gen-secret
 {
     "default_info": "03b4c78e-c70f-4ad7-b229-608bff012f1b",
     "zones": [
-        "magnascale"
+        "rgw-scale"
     ]
 }
 ```
@@ -56,8 +56,8 @@ radosgw-admin key create --subuser=johndoe:swift --key-type=swift --gen-secret
 [root@node1 ~]# radosgw-admin zonegroup get
 {
     "id": "14ebae29-9348-44fc-84ae-e9174054083b",
-    "name": "magnascale",
-    "api_name": "magnascale",
+    "name": "rgw-scale",
+    "api_name": "rgw-scale",
     "is_master": "true",
     "endpoints": [],
     "hostnames": [],

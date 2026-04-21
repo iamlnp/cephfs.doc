@@ -77,7 +77,7 @@ Bucket 's3://my-new-bucket/' created
 ```bash
 [root@node1 ~]# python3 /usr/bin/s3cmd  info s3://my-new-bucket
 s3://my-new-bucket/ (bucket):
-   Location:  magnascale:policy1
+   Location:  rgw-scale:policy1
    Payer:     BucketOwner
    Expiration Rule: none
    Policy:    none
