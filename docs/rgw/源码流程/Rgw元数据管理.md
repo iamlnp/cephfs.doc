@@ -1,10 +1,36 @@
-### 4.1.3 元数据  
+### 0.1.1 元数据  
 核心实现在 `RGWRados::Object::Write::_do_write_meta` 里，函数里面的op是元数据操作，index_op是index操作
-#### 4.1.3.1 BucketEntryPoint  
-Bucket 的入口信息（BucketEntryPoint），也就是桶的 “身份证”  ,可以把 `EntryPoint` 理解为一个从不更改的**门牌号**，而 `RGWBucketInfo` 则是门牌号背后可能随时调整的**住户档案**。这种分离设计是 RGW 实现**桶重分片（resharding）**、**多区域**等高级特性的基础。
+#### 0.1.1.1 BucketEntryPoint  
+Bucket 的入口信息（BucketEntryPoint），也就是桶的 “身份证”  ,可以把 `EntryPoint` 理解为一个从不更改的**门牌号**，而 `RGWBucketInfo` 则是门牌号背后可能随时调整的**住户档案**。这种分离设计是 RGW 实现**桶重分片（resharding）**、**多区域**等高级特性的基础。  
+
+```c++
+struct RGWBucketEntryPoint
+{
+  rgw_bucket bucket;
+  rgw_owner owner;
+  ceph::real_time creation_time;
+  bool linked;
+  bool has_bucket_info;
+  RGWBucketInfo old_bucket_info;
+
+  RGWBucketEntryPoint() : linked(false), has_bucket_info(false) {}
+  void encode(bufferlist& bl) const {
+      ...
+  }
+  void decode(bufferlist::const_iterator& bl) {
+      ...
+  }
+  void dump(Formatter *f) const;
+  void decode_json(JSONObj *obj);
+};
+```
+
+简要类图如下：  
+![693](assets/Rgw元数据管理/file-20260421160514313.png)  
+
 
 读取函数：   
-RGWSI_Bucket_SObj::read_bucket_entrypoint_info(),   
+RGWSI_Bucket_SObj::read_bucket_entrypoint_info(...),   详细声明如下：
 ```c++
 int RGWSI_Bucket_SObj::read_bucket_entrypoint_info(
     const string& key,                          // 桶的key：root/bucket.{bucket_name}
@@ -16,6 +42,19 @@ int RGWSI_Bucket_SObj::read_bucket_entrypoint_info(
     const DoutPrefixProvider *dpp,              // 日志
     rgw_cache_entry_info *cache_info,           // 缓存
     boost::optional<obj_version> refresh_version)
+{
+    //1. 读取bucket entrypoint
+    int r = read_bucket_entrypoint_info(*b, &(*ep), y, dpp, RGWBucketCtl::Bucket::GetParams().set_objv_tracker(ep_objv_tracker));
+    
+    //2. 读取bucket instance info
+    int ret = svc.bucket->read_bucket_instance_info(RGWSI_Bucket::get_bi_meta_key(*b),
+                                                  info,
+                                                  params.mtime,
+                                                  params.attrs,
+                                                  y, dpp,
+                                                  params.cache_info,
+                                                  params.refresh_version);
+}
 ```
 其中RGW 存储桶入口元数据的 RADOS 池， 默认 default.rgw.meta，const rgw_pool& pool = svc.zone->get_zone_params().domain_root
 
@@ -39,7 +78,7 @@ int RGWSI_Bucket_SObj::read_bucket_entrypoint_info(
 - RGWSI_SysObj_Core::get_rados_obj
 - RGWSI_SysObj_Core::rgw_rados_operate
 
-#### 4.1.3.2 Bucket信息-RGWBucketInfo
+#### 0.1.1.2 Bucket信息-RGWBucketInfo
  `RGWBucketInfo` 包含了管理一个 bucket 所需的所有动态元数据。如果说 EntryPoint 是“门牌号”，那么 Info 就是“房间内部的所有装修和配置”。  
 
 在 RADOS 存储中，`RGWBucketInfo` 对象存储为 `.bucket.meta.{tenant}:{bucket-name}:{bucket-id}`，通常位于与 EntryPoint 相同的 `{zone}.rgw.meta` 池中。  
@@ -53,10 +92,10 @@ int RGWSI_Bucket_SObj::read_bucket_entrypoint_info(
 | 存储策略   | `placement_rule`, `data_pool`, `index_pool` | 决定数据存储在哪个存储池、使用何种存储类别（如SSD/HDD）以及索引分片数量等[](https://blog.csdn.net/weixin_39648824/article/details/114750529)[](https://www.e-com-net.com/article/1643860215952629760.htm)。 |
 | 配额与配置  | `quota`, `flags`, `versioning`              | 配置桶的容量配额、是否启用版本控制等高级功能。                                                                                                                                                   |
 | 运行时状态  | `objv_tracker`                              | 一个版本追踪器，用于确保分布式环境下的并发操作安全。                                                                                                                                                |
-#### 4.1.3.3 核心元数据  
+#### 0.1.1.3 核心元数据  
 
 
-#### 4.1.3.4 桶索引
+#### 0.1.1.4 桶索引
 `rgw_bucket_dir_header` 、 `rgw_bucket_dir` 、 `rgw_bucket_dir_entry` 是桶索引相关内容  
 可以将它们理解为一个“账本”系统：
 
@@ -91,10 +130,10 @@ flowchart TD
     - 将这些 `rgw_bucket_dir_entry` 中记录的对象元数据返回给客户端。
 
 
-#### 4.1.3.5 名称映射   
+#### 0.1.1.5 名称映射   
 
 
-### 4.1.4 扩展属性  
+### 0.1.2 扩展属性  
 
 两类属性：系统 vs 用户    
 - **系统属性（System attrs）**：RGW 内部使用

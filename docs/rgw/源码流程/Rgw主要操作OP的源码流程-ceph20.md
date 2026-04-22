@@ -156,7 +156,7 @@ rgw_process_authenticated() //认证完成后的op执行流程
     -> op->verify_op_mask()
     -> op->verify_permission(y);
     -> op->verify_params()
-    -> op->pre_exec() //step1: 预处理，前置校验与准备
+    -> op-> () //step1: 预处理，前置校验与准备
     -> op->execute()  //step2: 数据读写核心流程
     -> op->complete() //step3: 元数据更新与收尾
 ```
