@@ -62,3 +62,6 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+  - plantuml_markdown:
+      server: https://www.plantuml.com/plantuml  # 在线服务（无需本地Java）
+      format: svg                                # 高清矢量图
