@@ -173,8 +173,9 @@ rgw_process_authenticated() //认证完成后的op执行流程
 # 3 [Get下载流程](Get下载流程.md)
 
 # 4 [创建Bucket流程](创建Bucket流程.md)  
+# 5 [删除Bucket流程](删除Bucket流程.md)
 
-# 5 List buckets-列举桶
+# 6 List buckets-列举桶
 RGWListBuckets_ObjStore_S3
 **核心职责**：返回用户拥有的桶列表，支持分页、前缀过滤等参数
 
@@ -224,10 +225,10 @@ classDiagram
 
 
 
-### 5.1.1 核心执行阶段  
-#### 5.1.1.1 RGWListBucket::execute  
+### 6.1.1 核心执行阶段  
+#### 6.1.1.1 RGWListBucket::execute  
 
-# 6 RGWListBucket-查询桶内容  
+# 7 RGWListBucket-查询桶内容  
 **核心职责**：返回指定桶内的对象列表，支持分页、前缀过滤、版本控制等参数。  
 
 **类继承体系**  
@@ -255,9 +256,9 @@ classDiagram
     RGWListBucket_ObjStore <|-- RGWListBucket_ObjStore_S3
 ```
 
-# 7 核心操作对比  
+# 8 核心操作对比  
 
-## 7.1 上传、下载、创建桶、查询桶列表和查询桶内容对比
+## 8.1 上传、下载、创建桶、查询桶列表和查询桶内容对比
 
 | 维度     | RGWGetObj_ObjStore                | RGWCreateBucket                      | RGWListBuckets           | RGWListBucket                                 |
 | ------ | --------------------------------- | ------------------------------------ | ------------------------ | --------------------------------------------- |
@@ -268,7 +269,7 @@ classDiagram
 | 特殊功能   | Range请求、加密解密、压缩解压                 | 桶分片、存储类、对象锁                          | 分页、前缀过滤、缓存               | delimiter目录模拟、版本控制分页                          |
 | 幂等性    | GET 天然幂等                          | 重复创建返回错误                             | 天然幂等                     | GET 天然幂等                                      |
 
-## 7.2 其他操作对比  
+## 8.2 其他操作对比  
 下表对这些操作按功能领域进行了分类和梳理[^9]：  
 
 | 功能领域  | 对应操作                                                                | 核心职责                             | 涉及的关键数据/组件                                          |
@@ -294,7 +295,7 @@ classDiagram
 |       | RGWSetTempURL                                                       | 为 Swift 接口设置临时 URL 密钥            | 账户的元数据                                              |
 |       | RGWStatAccount                                                      | 获取账户的元数据信息（如桶个数、用量）              | 用户元数据对象                                             |
 
-# 8 [Rgw元数据管理](Rgw元数据管理.md)
+# 9 [Rgw元数据管理](Rgw元数据管理.md)
 
 
 [^1]: RGW Frontend 是 Ceph RGW 的 **HTTP 服务器组件**，负责：

@@ -1,5 +1,5 @@
 # 类型关系图  
-```plantuml
+```plantuml-svg
 @startuml
 set namespaceSeparator none
 ' 组合关系
