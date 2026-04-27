@@ -68,7 +68,6 @@ markdown_extensions:
   - mkdocs_graphviz:
       light_theme: "000000"   # 亮色主题：节点/边颜色（不带#）
       dark_theme: "FFFFFF"    # 暗色主题
-      format: "svg"            # 推荐svg，也可png
 
 extra_javascript:
   - https://cdn.jsdelivr.net/gh/rod2ik/cdn@main/mkdocs/javascripts/massilia-graphviz.js
