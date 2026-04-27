@@ -43,3 +43,15 @@ RGWRESTMgr_Admin * admin_resource = new RGWRESTMgr_Admin;
     - g_conf()->rgw_admin_entry -> admin_resource
 ```
 5. zero -> `RESTMgr_Zero `
+
+# 3 RGWLib初始化  
+```c++
+RGWLib::init()
+    -> rgw::AppMain::init_frontends2()
+        -> 根据配置生成相应的RGWFrontend* fe, RGWLib对应的framework是rgw-nfs，对应的类是：RGWLibFrontend
+        -> fe->init()
+            -> pprocess = new RGWLibProcess(...), 生成RGWLibProcess实例，线程数量根据g_conf()->rgw_thread_pool_size配置设定
+        -> fe->run()
+        -> 将fe添加到全局的fes.push_back(fe)中
+
+```

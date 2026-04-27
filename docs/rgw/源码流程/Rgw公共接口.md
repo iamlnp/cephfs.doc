@@ -1,6 +1,5 @@
 # 类型关系图  
-```plantuml-svg
-@startuml
+```plantuml
 set namespaceSeparator none
 ' 组合关系
 rgw_raw_obj *-- rgw_pool: 组合
