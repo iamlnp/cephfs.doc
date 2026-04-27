@@ -13,7 +13,6 @@ mkdocs:
 
 # 依赖安装（如需扩展 MkDocs 插件，在这里加）
 python:
-  version: "3.10"
   install:
     - requirements: requirements.txt  # 可选，放 MkDocs 插件依赖
 build:
